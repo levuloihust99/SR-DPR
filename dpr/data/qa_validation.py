@@ -16,6 +16,8 @@ import unicodedata
 from functools import partial
 from multiprocessing import Pool as ProcessPool
 from typing import Tuple, List, Dict
+import requests
+import json
 
 import regex as re
 
@@ -24,6 +26,11 @@ from dpr.utils.tokenizers import SimpleTokenizer
 logger = logging.getLogger(__name__)
 
 QAMatchStats = collections.namedtuple('QAMatchStats', ['top_k_hits', 'questions_doc_hits'])
+
+
+def get_corpus_endpoint(path):
+    global corpus_endpoint
+    corpus_endpoint = path
 
 
 def calculate_matches(all_docs: Dict[object, Tuple[str, str]], answers: List[List[str]],
@@ -79,8 +86,20 @@ def check_answer(questions_answers_docs, tokenizer, match_type) -> List[bool]:
     global dpr_all_documents
     hits = []
 
+    if dpr_all_documents is None:
+        assert corpus_endpoint in globals(), "It seems you are using remote corpus, but no corpus endpoint is defined. Please check if the parameters '--remote_corpus' and '--corpus_endpoint' are missing"
+
+    local_documents = {}
+    if dpr_all_documents:
+        for doc_id in doc_ids:
+            local_documents[doc_id] = dpr_all_documents[doc_id]
+    else:
+        docs = requests.post(corpus_endpoint, data=json.dumps(doc_ids), headers={"Content-Type": "application/json"})
+        for doc_id, doc in zip(doc_ids, docs):
+            local_documents[doc_id] = doc
+
     for i, doc_id in enumerate(doc_ids):
-        doc = dpr_all_documents[doc_id]
+        doc = local_documents[doc_id]
         text = doc[0]
 
         answer_found = False

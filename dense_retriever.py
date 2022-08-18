@@ -19,6 +19,7 @@ import gzip
 import logging
 import pickle
 import time
+import jsonlines
 from typing import List, Tuple, Dict, Iterator
 
 import numpy as np
@@ -101,6 +102,14 @@ def parse_qa_csv_file(location) -> Iterator[Tuple[str, List[str]]]:
         for row in reader:
             question = row[0]
             answers = eval(row[1])
+            yield question, answers
+
+
+def parse_qa_jsonl_file(location) -> Iterator[Tuple[str, List[str]]]:
+    with jsonlines.open(location) as reader:
+        for row in reader:
+            question = row['question']
+            answers = row['answers']
             yield question, answers
 
 
@@ -215,7 +224,8 @@ def main(args):
     questions = []
     question_answers = []
 
-    for ds_item in parse_qa_csv_file(args.qa_file):
+    parse_fn = parse_qa_csv_file if args.qa_format == 'csv' else parse_qa_jsonl_file
+    for ds_item in parse_fn(args.qa_file):
         question, answers = ds_item
         questions.append(question)
         question_answers.append(answers)
@@ -247,10 +257,15 @@ def main(args):
     # get top k results
     top_ids_and_scores = retriever.get_top_docs(questions_tensor.numpy(), args.n_docs)
 
-    all_passages = load_passages(args.ctx_file)
+    all_passages = None
+    if not args.remote_corpus:
+        all_passages = load_passages(args.ctx_file)
+    else:
+        from dpr.data.qa_validation import get_corpus_endpoint
+        get_corpus_endpoint(path=args.corpus_endpoint)
 
-    if len(all_passages) == 0:
-        raise RuntimeError('No passages data found. Please specify ctx_file param properly.')
+    # if len(all_passages) == 0:
+    #     raise RuntimeError('No passages data found. Please specify ctx_file param properly.')
 
     questions_doc_hits = validate(all_passages, question_answers, top_ids_and_scores, args.validation_workers,
                                   args.match)
@@ -268,6 +283,8 @@ if __name__ == '__main__':
 
     parser.add_argument('--qa_file', required=True, type=str, default=None,
                         help="Question and answers file of the format: question \\t ['answer1','answer2', ...]")
+    parser.add_argument('--qa_format', default='csv', choices=['csv', 'jsonl'],
+                        help="Format of the file containing test questions and answers")
     parser.add_argument('--ctx_file', required=True, type=str, default=None,
                         help="All passages file in the tsv format: id \\t passage_text \\t title")
     parser.add_argument('--encoded_ctx_file', type=str, default=None,
@@ -288,6 +305,8 @@ if __name__ == '__main__':
     parser.add_argument("--encode_q_and_save", action='store_true')
     parser.add_argument("--re_encode_q", action='store_true')
     parser.add_argument("--q_encoding_path")
+    parser.add_argument("--remote_corpus", action='store_true', help="If enabled, do not load corpus into RAM but make request to corpus endpoint")
+    parser.add_argument("--corpus_endpoint", help="Corpus endpoint to get documents")
 
     args = parser.parse_args()
 
