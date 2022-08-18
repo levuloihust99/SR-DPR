@@ -249,9 +249,9 @@ def main(args):
     retriever = DenseRetriever(encoder, args.batch_size, tensorizer, index)
 
     # index all passages
-    input_paths = os.listdir(args.encoded_ctx_dir)
-    input_paths = sorted(input_paths, key=lambda x: int(re.search(r"wikipedia_passages_(\d+)\.pkl", x).group(1)))
-    input_paths = [os.path.join(args.encoded_ctx_dir, f) for f in input_paths]
+    # input_paths = os.listdir(args.encoded_ctx_dir)
+    # input_paths = sorted(input_paths, key=lambda x: int(re.search(r"wikipedia_passages_(\d+)\.pkl", x).group(1)))
+    # input_paths = [os.path.join(args.encoded_ctx_dir, f) for f in input_paths]
 
     # index_path = "_".join(input_paths[0].split("_")[:-1])
     # index_path = args.index_path
@@ -263,7 +263,8 @@ def main(args):
     #     retriever.index.index_data(input_paths)
     #     if args.save_or_load_index:
     #         retriever.index.serialize(index_path)
-    index_paths = args.index_paths
+
+    index_paths = args.index_paths.split(',')
     index = DistributedFaissDenseIndexer(
         vector_sz=vector_size,
         indexers=None,
@@ -302,10 +303,10 @@ if __name__ == '__main__':
                         help="Question and answers file of the format: question \\t ['answer1','answer2', ...]")
     parser.add_argument('--qa_format', default='csv', choices=['csv', 'jsonl'],
                         help="Format of the file containing test questions and answers")
-    parser.add_argument('--ctx_file', required=True, type=str, default=None,
+    parser.add_argument('--ctx_file', default=None,
                         help="All passages file in the tsv format: id \\t passage_text \\t title")
-    parser.add_argument('--encoded_ctx_dir', type=str, default=None,
-                        help='Glob path to encoded passages (from generate_dense_embeddings tool)')
+    # parser.add_argument('--encoded_ctx_dir', type=str, default=None,
+    #                     help='Glob path to encoded passages (from generate_dense_embeddings tool)')
     parser.add_argument('--out_file', type=str, default=None,
                         help='output .json file path to write results to ')
     parser.add_argument('--match', type=str, default='string', choices=['regex', 'string'],
@@ -324,7 +325,7 @@ if __name__ == '__main__':
     parser.add_argument("--q_encoding_path")
     parser.add_argument("--remote_corpus", action='store_true', help="If enabled, do not load corpus into RAM but make request to corpus endpoint")
     parser.add_argument("--corpus_endpoint", help="Corpus endpoint to get documents")
-    parser.add_argument("--index_paths", type=eval, help="Path to save or load the FAISS indexes")
+    parser.add_argument("--index_paths", help="Paths to save or load the FAISS indexes, comma seperated")
 
     args = parser.parse_args()
 
