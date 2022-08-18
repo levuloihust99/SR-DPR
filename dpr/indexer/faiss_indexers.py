@@ -39,10 +39,10 @@ class DenseIndexer(object):
             vectors = np.concatenate(vectors, axis=0)
             total_data = self._update_id_mapping(db_ids)
             self.index.add(vectors)
-            logger.info("data indexed %d", total_data)
+            logger.info("data indexed {}".format(total_data))
 
         indexed_cnt = len(self.index_id_to_db_id)
-        logger.info("Total data indexed %d", indexed_cnt)
+        logger.info("Total data indexed {}".format(indexed_cnt))
 
     def index_data(self, vector_files: List[str]):
         start_time = time.time()
@@ -53,8 +53,8 @@ class DenseIndexer(object):
             if 0 < self.buffer_size == len(buffer):
                 # indexing in batches is beneficial for many faiss index types
                 self._index_batch(buffer)
-                logger.info('data indexed %d, used_time: %f sec.',
-                            len(self.index_id_to_db_id), time.time() - start_time)
+                logger.info('data indexed {}, used_time: {} sec.'.format(
+                            len(self.index_id_to_db_id), time.time() - start_time))
                 buffer = []
         self._index_batch(buffer)
 
@@ -69,7 +69,7 @@ class DenseIndexer(object):
         raise NotImplementedError
 
     def serialize(self, file: str):
-        logger.info('Serializing index to %s', file)
+        logger.info('Serializing index to {}'.format(file))
 
         if os.path.isdir(file):
             index_file = os.path.join(file, "index.dpr")
@@ -83,7 +83,7 @@ class DenseIndexer(object):
             pickle.dump(self.index_id_to_db_id, f)
 
     def deserialize_from(self, file: str):
-        logger.info('Loading index from %s', file)
+        logger.info('Loading index from {}'.format(file))
 
         if os.path.isdir(file):
             index_file = os.path.join(file, "index.dpr")
@@ -93,7 +93,7 @@ class DenseIndexer(object):
             meta_file = file + '.index_meta.dpr'
 
         self.index = faiss.read_index(index_file)
-        logger.info('Loaded index of type %s and size %d', type(self.index), self.index.ntotal)
+        logger.info('Loaded index of type {} and size {}'.format(type(self.index), self.index.ntotal))
 
         with open(meta_file, "rb") as reader:
             self.index_id_to_db_id = pickle.load(reader)
