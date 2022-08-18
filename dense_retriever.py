@@ -244,10 +244,18 @@ def main(args):
         return
 
     vector_size = questions_tensor.shape[-1]
-    if args.hnsw_index:
-        index = DenseHNSWFlatIndexer(vector_size, args.index_buffer)
-    else:
-        index = DenseFlatIndexer(vector_size, args.index_buffer)
+    index_paths = args.index_paths.split(',')
+    logger.info(index_paths)
+    index = DistributedFaissDenseIndexer(
+        vector_sz=vector_size,
+        indexers=None,
+        index_paths=index_paths,
+        buffer_size=args.index_buffer
+    )
+    # if args.hnsw_index:
+    #     index = DenseHNSWFlatIndexer(vector_size, args.index_buffer)
+    # else:
+    #     index = DenseFlatIndexer(vector_size, args.index_buffer)
     retriever = DenseRetriever(encoder, args.batch_size, tensorizer, index)
 
     # index all passages
@@ -265,15 +273,6 @@ def main(args):
     #     retriever.index.index_data(input_paths)
     #     if args.save_or_load_index:
     #         retriever.index.serialize(index_path)
-
-    index_paths = args.index_paths.split(',')
-    logger.info(index_paths)
-    index = DistributedFaissDenseIndexer(
-        vector_sz=vector_size,
-        indexers=None,
-        index_paths=index_paths,
-        buffer_size=args.index_buffer
-    )
 
     # get top k results
     top_ids_and_scores = retriever.get_top_docs(questions_tensor.numpy(), args.n_docs)
