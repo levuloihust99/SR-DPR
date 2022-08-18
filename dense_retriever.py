@@ -217,7 +217,7 @@ def main(args):
         vector_size = model_to_load.get_out_size()
         logger.info('Encoder vector_size=%d', vector_size)
     else:
-        tensorizer = get_bert_tensorizer(args)
+        tensorizer = None
         encoder = None
 
     # get questions & answers
@@ -253,7 +253,8 @@ def main(args):
     input_paths = sorted(input_paths, key=lambda x: int(re.search(r"wikipedia_passages_(\d+)\.pkl", x).group(1)))
     input_paths = [os.path.join(args.encoded_ctx_dir, f) for f in input_paths]
 
-    index_path = "_".join(input_paths[0].split("_")[:-1])
+    # index_path = "_".join(input_paths[0].split("_")[:-1])
+    index_path = args.index_path
     logger.info("Index path: '{}'".format(index_path))
     if args.save_or_load_index and (os.path.exists(index_path) or os.path.exists(index_path + ".index.dpr")):
         retriever.index.deserialize_from(index_path)
@@ -316,6 +317,7 @@ if __name__ == '__main__':
     parser.add_argument("--q_encoding_path")
     parser.add_argument("--remote_corpus", action='store_true', help="If enabled, do not load corpus into RAM but make request to corpus endpoint")
     parser.add_argument("--corpus_endpoint", help="Corpus endpoint to get documents")
+    parser.add_argument("--index_path", help="Path to save or load the FAISS index")
 
     args = parser.parse_args()
 

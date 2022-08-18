@@ -28,6 +28,22 @@ class DenseIndexer(object):
         self.index_id_to_db_id = []
         self.index = None
 
+    def index_iterated_data(self, data: List[Tuple[object, np.array]]):
+        n = len(data)
+        # indexing in batches is beneficial for many faiss index types
+        for i in range(0, n, self.buffer_size):
+            db_ids = [t[0] for t in data[i : i + self.buffer_size]]
+            vectors = [
+                np.reshape(t[1], (1, -1)) for t in data[i : i + self.buffer_size]
+            ]
+            vectors = np.concatenate(vectors, axis=0)
+            total_data = self._update_id_mapping(db_ids)
+            self.index.add(vectors)
+            logger.info("data indexed %d", total_data)
+
+        indexed_cnt = len(self.index_id_to_db_id)
+        logger.info("Total data indexed %d", indexed_cnt)
+
     def index_data(self, vector_files: List[str]):
         start_time = time.time()
         buffer = []
