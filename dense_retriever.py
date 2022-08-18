@@ -190,28 +190,32 @@ def iterate_encoded_files(vector_files: list) -> Iterator[Tuple[object, np.array
 
 
 def main(args):
-    saved_state = load_states_from_checkpoint(args.model_file)
-    set_encoder_params_from_state(saved_state.encoder_params, args)
+    do_question_embedding = not (args.q_encoding_path and not args.re_encode_q and os.path.exists(args.q_encoding_path))
+    if do_question_embedding:
+        saved_state = load_states_from_checkpoint(args.model_file)
+        set_encoder_params_from_state(saved_state.encoder_params, args)
 
-    tensorizer, encoder, _ = init_biencoder_components(args.encoder_model_type, args, inference_only=True)
+        tensorizer, encoder, _ = init_biencoder_components(args.encoder_model_type, args, inference_only=True)
 
-    encoder = encoder.question_model
+        encoder = encoder.question_model
 
-    encoder, _ = setup_for_distributed_mode(encoder, None, args.device, args.n_gpu,
-                                            args.local_rank,
-                                            args.fp16)
-    encoder.eval()
+        encoder, _ = setup_for_distributed_mode(encoder, None, args.device, args.n_gpu,
+                                                args.local_rank,
+                                                args.fp16)
+        encoder.eval()
 
-    # load weights from the model file
-    model_to_load = get_model_obj(encoder)
-    logger.info('Loading saved model state ...')
+        # load weights from the model file
+        model_to_load = get_model_obj(encoder)
+        logger.info('Loading saved model state ...')
 
-    prefix_len = len('question_model.')
-    question_encoder_state = {key[prefix_len:]: value for (key, value) in saved_state.model_dict.items() if
-                              key.startswith('question_model.')}
-    model_to_load.load_state_dict(question_encoder_state)
-    vector_size = model_to_load.get_out_size()
-    logger.info('Encoder vector_size=%d', vector_size)
+        prefix_len = len('question_model.')
+        question_encoder_state = {key[prefix_len:]: value for (key, value) in saved_state.model_dict.items() if
+                                key.startswith('question_model.')}
+        model_to_load.load_state_dict(question_encoder_state)
+        vector_size = model_to_load.get_out_size()
+        logger.info('Encoder vector_size=%d', vector_size)
+    else:
+        encoder = None
 
     if args.hnsw_index:
         index = DenseHNSWFlatIndexer(vector_size, args.index_buffer)
@@ -230,7 +234,7 @@ def main(args):
         questions.append(question)
         question_answers.append(answers)
 
-    if args.q_encoding_path and not args.re_encode_q and os.path.exists(args.q_encoding_path):
+    if not do_question_embedding:
         questions_tensor = torch.load(args.q_encoding_path)
     else:
         questions_tensor = retriever.generate_question_vectors(questions)
