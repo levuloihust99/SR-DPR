@@ -24,7 +24,7 @@ from typing import List, Tuple, Dict, Iterator
 
 import numpy as np
 import torch
-from torch import Tensor as T
+from torch import Tensor as T, tensor
 from torch import nn
 
 from dpr.data.qa_validation import calculate_matches
@@ -34,6 +34,7 @@ from dpr.options import add_encoder_params, setup_args_gpu, print_args, set_enco
 from dpr.utils.data_utils import Tensorizer
 from dpr.utils.model_utils import setup_for_distributed_mode, get_model_obj, load_states_from_checkpoint
 from dpr.indexer.faiss_indexers import DenseIndexer, DenseHNSWFlatIndexer, DenseFlatIndexer
+from dpr.models.hf_models import get_bert_tensorizer
 
 logger = logging.getLogger()
 logger.setLevel(logging.INFO)
@@ -215,6 +216,7 @@ def main(args):
         vector_size = model_to_load.get_out_size()
         logger.info('Encoder vector_size=%d', vector_size)
     else:
+        tensorizer = get_bert_tensorizer(args)
         encoder = None
 
     # get questions & answers
