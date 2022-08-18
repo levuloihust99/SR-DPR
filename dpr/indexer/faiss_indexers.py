@@ -102,6 +102,7 @@ class DenseIndexer(object):
 
     def _update_id_mapping(self, db_ids: List):
         self.index_id_to_db_id.extend(db_ids)
+        return len(self.index_id_to_db_id)
 
 
 class DenseFlatIndexer(DenseIndexer):
