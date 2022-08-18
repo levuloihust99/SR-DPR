@@ -294,7 +294,7 @@ if __name__ == '__main__':
                         help="Format of the file containing test questions and answers")
     parser.add_argument('--ctx_file', required=True, type=str, default=None,
                         help="All passages file in the tsv format: id \\t passage_text \\t title")
-    parser.add_argument('--encoded_ctx_file', type=str, default=None,
+    parser.add_argument('--encoded_ctx_dir', type=str, default=None,
                         help='Glob path to encoded passages (from generate_dense_embeddings tool)')
     parser.add_argument('--out_file', type=str, default=None,
                         help='output .json file path to write results to ')
