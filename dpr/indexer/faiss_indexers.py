@@ -226,6 +226,7 @@ class DistributedFaissDenseIndexer(object):
             indexers = []
             for path in index_paths:
                 index = DenseFlatIndexer(vector_sz, buffer_size=buffer_size)
+                index.deserialize_from(path)
                 indexers.append(index)
         self.indexers = indexers
 
