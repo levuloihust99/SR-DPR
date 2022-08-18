@@ -18,6 +18,7 @@ def build_index(encoded_ctx_dir: str, indexer: DenseFlatIndexer, index_path: str
     files = [os.path.join(encoded_ctx_dir, f) for f in files]
     logger.info("Iterating through encoded context files...")
     for f in files:
+        logger.info("Reading context embedding vectors from '{}'".format(f))
         with open(f, "rb") as reader:
             chunk = pickle.load(reader)
             indexer.index_iterated_data(chunk)
