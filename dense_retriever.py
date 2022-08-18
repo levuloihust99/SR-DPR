@@ -248,8 +248,9 @@ def main(args):
     retriever = DenseRetriever(encoder, args.batch_size, tensorizer, index)
 
     # index all passages
-    ctx_files_pattern = args.encoded_ctx_file
-    input_paths = glob.glob(ctx_files_pattern)
+    input_paths = os.listdir(args.encoded_ctx_dir)
+    input_paths = sorted(input_paths)
+    input_paths = [os.path.join(args.encoded_ctx_dir, f) for f in input_paths]
 
     index_path = "_".join(input_paths[0].split("_")[:-1])
     if args.save_or_load_index and (os.path.exists(index_path) or os.path.exists(index_path + ".index.dpr")):
