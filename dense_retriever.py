@@ -217,13 +217,6 @@ def main(args):
     else:
         encoder = None
 
-    if args.hnsw_index:
-        index = DenseHNSWFlatIndexer(vector_size, args.index_buffer)
-    else:
-        index = DenseFlatIndexer(vector_size, args.index_buffer)
-
-    retriever = DenseRetriever(encoder, args.batch_size, tensorizer, index)
-
     # get questions & answers
     questions = []
     question_answers = []
@@ -244,6 +237,13 @@ def main(args):
     # finished encoding, exit
     if args.encode_q_and_save:
         return
+
+    vector_size = questions_tensor.shape[-1]
+    if args.hnsw_index:
+        index = DenseHNSWFlatIndexer(vector_size, args.index_buffer)
+    else:
+        index = DenseFlatIndexer(vector_size, args.index_buffer)
+    retriever = DenseRetriever(encoder, args.batch_size, tensorizer, index)
 
     # index all passages
     ctx_files_pattern = args.encoded_ctx_file
