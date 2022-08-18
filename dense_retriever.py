@@ -254,6 +254,7 @@ def main(args):
     input_paths = [os.path.join(args.encoded_ctx_dir, f) for f in input_paths]
 
     index_path = "_".join(input_paths[0].split("_")[:-1])
+    logger.info("Index path: '{}'".format(index_path))
     if args.save_or_load_index and (os.path.exists(index_path) or os.path.exists(index_path + ".index.dpr")):
         retriever.index.deserialize_from(index_path)
     else:
