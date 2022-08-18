@@ -265,6 +265,7 @@ def main(args):
     #         retriever.index.serialize(index_path)
 
     index_paths = args.index_paths.split(',')
+    logger.info(index_paths)
     index = DistributedFaissDenseIndexer(
         vector_sz=vector_size,
         indexers=None,
