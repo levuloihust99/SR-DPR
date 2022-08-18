@@ -36,6 +36,7 @@ from dpr.utils.data_utils import Tensorizer
 from dpr.utils.model_utils import setup_for_distributed_mode, get_model_obj, load_states_from_checkpoint
 from dpr.indexer.faiss_indexers import DenseIndexer, DenseHNSWFlatIndexer, DenseFlatIndexer, DistributedFaissDenseIndexer
 from dpr.models.hf_models import get_bert_tensorizer
+from dpr.utils.logging_utils import add_color_formater
 
 logger = logging.getLogger()
 logger.setLevel(logging.INFO)
@@ -43,6 +44,7 @@ if (logger.hasHandlers()):
     logger.handlers.clear()
 console = logging.StreamHandler()
 logger.addHandler(console)
+add_color_formater(logging.root)
 
 
 class DenseRetriever(object):

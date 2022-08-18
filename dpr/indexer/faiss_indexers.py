@@ -216,7 +216,7 @@ class DistributedFaissDenseIndexer(object):
         index_paths: Optional[List[str]] = None,
         buffer_size: int = 50000
     ):
-        assert indexers is None and index_paths is None, \
+        assert not (indexers is None and index_paths is None), \
             "You must provided 'indexers' or 'index_paths' parameter to create a 'DistributedFaissDenseIndexer'"
         if indexers is not None:
             self.indexers = indexers
