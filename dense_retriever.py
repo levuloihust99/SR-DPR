@@ -269,7 +269,7 @@ def main(args):
         vector_sz=vector_size,
         indexers=None,
         index_paths=index_paths,
-        buffer_size=args.buffer_size
+        buffer_size=args.index_buffer
     )
 
     # get top k results
