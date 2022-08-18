@@ -20,6 +20,7 @@ import logging
 import pickle
 import time
 import jsonlines
+import re
 from typing import List, Tuple, Dict, Iterator
 
 import numpy as np
@@ -249,7 +250,7 @@ def main(args):
 
     # index all passages
     input_paths = os.listdir(args.encoded_ctx_dir)
-    input_paths = sorted(input_paths)
+    input_paths = sorted(input_paths, key=lambda x: int(re.search(r"wikipedia_passages_(\d+)\.pkl", x).group(1)))
     input_paths = [os.path.join(args.encoded_ctx_dir, f) for f in input_paths]
 
     index_path = "_".join(input_paths[0].split("_")[:-1])
