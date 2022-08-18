@@ -13,7 +13,7 @@ import os
 import time
 import logging
 import pickle
-from typing import List, Tuple, Iterator
+from typing import List, Tuple, Iterator, Optional
 
 import faiss
 import numpy as np
@@ -206,3 +206,47 @@ def iterate_encoded_files(vector_files: list) -> Iterator[Tuple[object, np.array
             for doc in doc_vectors:
                 db_id, doc_vector = doc
                 yield db_id, doc_vector
+
+
+class DistributedFaissDenseIndexer(object):
+    def __init__(
+        self,
+        vector_sz: int,
+        indexers: Optional[List[DenseFlatIndexer]] = None,
+        index_paths: Optional[List[str]] = None,
+        buffer_size: int = 50000
+    ):
+        assert indexers is None and index_paths is None, \
+            "You must provided 'indexers' or 'index_paths' parameter to create a 'DistributedFaissDenseIndexer'"
+        if indexers is not None:
+            self.indexers = indexers
+        else:
+            assert index_paths is not None, \
+                "'index_paths' is required when 'indexers' is not provided"
+            indexers = []
+            for path in index_paths:
+                index = DenseFlatIndexer(vector_sz, buffer_size=buffer_size)
+                indexers.append(index)
+        self.indexers = indexers
+
+    
+    def search_knn(self, query_vectors: np.array, top_docs: int) -> List[Tuple[List[object], List[float]]]:
+        gathered_result = []
+        for indexer in self.indexers:
+            sharded_result = indexer.search_knn(query_vectors, top_docs)
+            gathered_result.append(sharded_result)
+        num_queries = len(query_vectors)
+        final_result = []
+        for idx in num_queries:
+            sharded_per_query_top_documents = [shard[idx] for shard in gathered_result]
+            sharded_per_query_top_documents = \
+                [list(zip(per_query_shard)) for per_query_shard in sharded_per_query_top_documents]
+            per_query_gathered_top_documents = []
+            for per_query_shard in sharded_per_query_top_documents:
+                per_query_gathered_top_documents.extend(per_query_shard)
+            per_query_gathered_top_documents = \
+                sorted(per_query_gathered_top_documents, key=lambda x: x[1], reverse=True)
+            per_query_gathered_top_documents = \
+                per_query_gathered_top_documents[:top_docs]
+            final_result.append(tuple(zip(*per_query_gathered_top_documents)))
+        return final_result

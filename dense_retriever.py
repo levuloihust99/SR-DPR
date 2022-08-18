@@ -34,7 +34,7 @@ from dpr.options import add_encoder_params, setup_args_gpu, print_args, set_enco
     add_tokenizer_params, add_cuda_params
 from dpr.utils.data_utils import Tensorizer
 from dpr.utils.model_utils import setup_for_distributed_mode, get_model_obj, load_states_from_checkpoint
-from dpr.indexer.faiss_indexers import DenseIndexer, DenseHNSWFlatIndexer, DenseFlatIndexer
+from dpr.indexer.faiss_indexers import DenseIndexer, DenseHNSWFlatIndexer, DenseFlatIndexer, DistributedFaissDenseIndexer
 from dpr.models.hf_models import get_bert_tensorizer
 
 logger = logging.getLogger()
@@ -254,15 +254,22 @@ def main(args):
     input_paths = [os.path.join(args.encoded_ctx_dir, f) for f in input_paths]
 
     # index_path = "_".join(input_paths[0].split("_")[:-1])
-    index_path = args.index_path
-    logger.info("Index path: '{}'".format(index_path))
-    if args.save_or_load_index and (os.path.exists(index_path) or os.path.exists(index_path + ".index.dpr")):
-        retriever.index.deserialize_from(index_path)
-    else:
-        logger.info('Reading all passages data from files: %s', input_paths)
-        retriever.index.index_data(input_paths)
-        if args.save_or_load_index:
-            retriever.index.serialize(index_path)
+    # index_path = args.index_path
+    # logger.info("Index path: '{}'".format(index_path))
+    # if args.save_or_load_index and (os.path.exists(index_path) or os.path.exists(index_path + ".index.dpr")):
+    #     retriever.index.deserialize_from(index_path)
+    # else:
+    #     logger.info('Reading all passages data from files: %s', input_paths)
+    #     retriever.index.index_data(input_paths)
+    #     if args.save_or_load_index:
+    #         retriever.index.serialize(index_path)
+    index_paths = args.index_paths
+    index = DistributedFaissDenseIndexer(
+        vector_sz=vector_size,
+        indexers=None,
+        index_paths=index_paths,
+        buffer_size=args.buffer_size
+    )
 
     # get top k results
     top_ids_and_scores = retriever.get_top_docs(questions_tensor.numpy(), args.n_docs)
@@ -317,7 +324,7 @@ if __name__ == '__main__':
     parser.add_argument("--q_encoding_path")
     parser.add_argument("--remote_corpus", action='store_true', help="If enabled, do not load corpus into RAM but make request to corpus endpoint")
     parser.add_argument("--corpus_endpoint", help="Corpus endpoint to get documents")
-    parser.add_argument("--index_path", help="Path to save or load the FAISS index")
+    parser.add_argument("--index_paths", type=eval, help="Path to save or load the FAISS indexes")
 
     args = parser.parse_args()
 
