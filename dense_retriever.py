@@ -281,8 +281,10 @@ def main(args):
     if not args.remote_corpus:
         all_passages = load_passages(args.ctx_file)
     else:
+        from dpr.data import qa_validation
         from dpr.data.qa_validation import get_corpus_endpoint
         get_corpus_endpoint(path=args.corpus_endpoint)
+        logger.info(qa_validation.corpus_endpoint)
 
     # if len(all_passages) == 0:
     #     raise RuntimeError('No passages data found. Please specify ctx_file param properly.')

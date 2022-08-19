@@ -87,6 +87,7 @@ def check_answer(questions_answers_docs, tokenizer, match_type) -> List[bool]:
     hits = []
 
     if dpr_all_documents is None:
+        logger.info(corpus_endpoint)
         assert corpus_endpoint in globals(), "It seems you are using remote corpus, but no corpus endpoint is defined. Please check if the parameters '--remote_corpus' and '--corpus_endpoint' are missing"
 
     local_documents = {}
