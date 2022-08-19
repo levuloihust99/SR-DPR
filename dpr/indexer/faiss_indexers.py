@@ -238,7 +238,7 @@ class DistributedFaissDenseIndexer(object):
             gathered_result.append(sharded_result)
         num_queries = len(query_vectors)
         final_result = []
-        for idx in num_queries:
+        for idx in range(num_queries):
             sharded_per_query_top_documents = [shard[idx] for shard in gathered_result]
             sharded_per_query_top_documents = \
                 [list(zip(per_query_shard)) for per_query_shard in sharded_per_query_top_documents]
