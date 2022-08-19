@@ -230,7 +230,7 @@ class DistributedFaissDenseIndexer(object):
                 indexers.append(index)
         self.indexers = indexers
 
-    
+
     def search_knn(self, query_vectors: np.array, top_docs: int) -> List[Tuple[List[object], List[float]]]:
         gathered_result = []
         for indexer in self.indexers:
@@ -241,10 +241,11 @@ class DistributedFaissDenseIndexer(object):
         for idx in range(num_queries):
             sharded_per_query_top_documents = [shard[idx] for shard in gathered_result]
             sharded_per_query_top_documents = \
-                [list(zip(per_query_shard)) for per_query_shard in sharded_per_query_top_documents]
+                [list(zip(*per_query_shard)) for per_query_shard in sharded_per_query_top_documents]
             per_query_gathered_top_documents = []
             for per_query_shard in sharded_per_query_top_documents:
                 per_query_gathered_top_documents.extend(per_query_shard)
+            logger.info(per_query_gathered_top_documents[0])
             per_query_gathered_top_documents = \
                 sorted(per_query_gathered_top_documents, key=lambda x: x[1], reverse=True)
             per_query_gathered_top_documents = \
