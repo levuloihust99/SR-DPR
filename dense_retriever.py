@@ -253,7 +253,6 @@ def main(args):
 
     vector_size = questions_tensor.shape[-1]
     index_paths = args.index_paths.split(',')
-    logger.info(index_paths)
     index = DistributedFaissDenseIndexer(
         vector_sz=vector_size,
         indexers=None,
@@ -283,6 +282,7 @@ def main(args):
     #         retriever.index.serialize(index_path)
 
     # get top k results
+    logger.info("Index searching...")
     top_ids_and_scores = retriever.get_top_docs(questions_tensor.numpy(), args.n_docs)
 
     all_passages = None
@@ -298,7 +298,7 @@ def main(args):
     validation_results = validate(all_passages, corpus_endpoint, question_answers, top_ids_and_scores, args.validation_workers,
                                   args.match)
     questions_doc_hits = validation_results.questions_doc_hits
-    top_hits = validation_results.top_hits
+    top_hits = validation_results.top_k_hits
     top_hits = [hit / len(question_answers) for hit in top_hits]
     pretty_results = ["Top {:03d}: {}".format(idx + 1, hit) for idx, hit in enumerate(top_hits)]
     pretty_results = "\n".join(pretty_results)
