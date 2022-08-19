@@ -28,12 +28,7 @@ logger = logging.getLogger(__name__)
 QAMatchStats = collections.namedtuple('QAMatchStats', ['top_k_hits', 'questions_doc_hits'])
 
 
-def get_corpus_endpoint(path):
-    global corpus_endpoint
-    corpus_endpoint = path
-
-
-def calculate_matches(all_docs: Dict[object, Tuple[str, str]], answers: List[List[str]],
+def calculate_matches(all_docs: Dict[object, Tuple[str, str]], corpus_endpoint: str, answers: List[List[str]],
                       closest_docs: List[Tuple[List[object], List[float]]], workers_num: int,
                       match_type: str) -> QAMatchStats:
     """
@@ -49,8 +44,9 @@ def calculate_matches(all_docs: Dict[object, Tuple[str, str]], answers: List[Lis
     valid matches across an entire dataset.
     questions_doc_hits - more detailed info with answer matches for every question and every retrieved document
     """
-    global dpr_all_documents
+    global dpr_all_documents, global_corpus_endpoint
     dpr_all_documents = all_docs
+    global_corpus_endpoint = corpus_endpoint
 
     tok_opts = {}
     tokenizer = SimpleTokenizer(**tok_opts)
@@ -84,18 +80,15 @@ def check_answer(questions_answers_docs, tokenizer, match_type) -> List[bool]:
     answers, (doc_ids, doc_scores) = questions_answers_docs
 
     global dpr_all_documents
+    global global_corpus_endpoint
     hits = []
-
-    if dpr_all_documents is None:
-        logger.info(corpus_endpoint)
-        assert corpus_endpoint in globals(), "It seems you are using remote corpus, but no corpus endpoint is defined. Please check if the parameters '--remote_corpus' and '--corpus_endpoint' are missing"
 
     local_documents = {}
     if dpr_all_documents:
         for doc_id in doc_ids:
             local_documents[doc_id] = dpr_all_documents[doc_id]
     else:
-        docs = requests.post(corpus_endpoint, data=json.dumps(doc_ids), headers={"Content-Type": "application/json"})
+        docs = requests.post(global_corpus_endpoint, data=json.dumps(doc_ids), headers={"Content-Type": "application/json"})
         for doc_id, doc in zip(doc_ids, docs):
             local_documents[doc_id] = doc
 

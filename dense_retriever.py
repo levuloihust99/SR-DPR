@@ -117,10 +117,10 @@ def parse_qa_jsonl_file(location) -> Iterator[Tuple[str, List[str]]]:
             yield question, answers
 
 
-def validate(passages: Dict[object, Tuple[str, str]], answers: List[List[str]],
+def validate(passages: Dict[object, Tuple[str, str]], corpus_endpoint: str, answers: List[List[str]],
              result_ctx_ids: List[Tuple[List[object], List[float]]],
              workers_num: int, match_type: str) -> List[List[bool]]:
-    match_stats = calculate_matches(passages, answers, result_ctx_ids, workers_num, match_type)
+    match_stats = calculate_matches(passages, corpus_endpoint, answers, result_ctx_ids, workers_num, match_type)
     top_k_hits = match_stats.top_k_hits
 
     logger.info('Validation results: top k documents hits %s', top_k_hits)
@@ -278,18 +278,16 @@ def main(args):
     top_ids_and_scores = retriever.get_top_docs(questions_tensor.numpy(), args.n_docs)
 
     all_passages = None
+    corpus_endpoint = None
     if not args.remote_corpus:
         all_passages = load_passages(args.ctx_file)
     else:
-        from dpr.data import qa_validation
-        from dpr.data.qa_validation import get_corpus_endpoint
-        get_corpus_endpoint(path=args.corpus_endpoint)
-        logger.info(qa_validation.corpus_endpoint)
+        corpus_endpoint = args.corpus_endpoint
 
     # if len(all_passages) == 0:
     #     raise RuntimeError('No passages data found. Please specify ctx_file param properly.')
 
-    questions_doc_hits = validate(all_passages, question_answers, top_ids_and_scores, args.validation_workers,
+    questions_doc_hits = validate(all_passages, corpus_endpoint, question_answers, top_ids_and_scores, args.validation_workers,
                                   args.match)
 
     if args.out_file:
