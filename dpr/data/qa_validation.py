@@ -78,23 +78,25 @@ def calculate_matches(all_docs: Dict[object, Tuple[str, str]], corpus_endpoint: 
 def check_answer(questions_answers_docs, tokenizer, match_type) -> List[bool]:
     """Search through all the top docs to see if they have any of the answers."""
     answers, (doc_ids, doc_scores) = questions_answers_docs
-
     global dpr_all_documents
     global global_corpus_endpoint
     hits = []
 
     local_documents = {}
     if dpr_all_documents:
+        text_idx = 0
         for doc_id in doc_ids:
             local_documents[doc_id] = dpr_all_documents[doc_id]
     else:
-        docs = requests.post(global_corpus_endpoint, data=json.dumps(doc_ids), headers={"Content-Type": "application/json"})
+        text_idx = "text"
+        resp = requests.post(global_corpus_endpoint, data=json.dumps({"doc_ids": doc_ids}), headers={"Content-Type": "application/json"})
+        docs = resp.json()
         for doc_id, doc in zip(doc_ids, docs):
             local_documents[doc_id] = doc
 
     for i, doc_id in enumerate(doc_ids):
         doc = local_documents[doc_id]
-        text = doc[0]
+        text = doc[text_idx]
 
         answer_found = False
         if text is None:  # cannot find the document for some reason

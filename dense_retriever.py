@@ -21,6 +21,7 @@ import pickle
 import time
 import jsonlines
 import re
+import requests
 from typing import List, Tuple, Dict, Iterator
 
 import numpy as np
@@ -149,7 +150,7 @@ def load_passages(ctx_file: str) -> Dict[object, Tuple[str, str]]:
     return docs
 
 
-def save_results(passages: Dict[object, Tuple[str, str]], questions: List[str], answers: List[List[str]],
+def save_results(passages: Dict[object, Tuple[str, str]], corpus_endpoint: str, questions: List[str], answers: List[List[str]],
                  top_passages_and_scores: List[Tuple[List[object], List[float]]], per_question_hits: List[List[bool]],
                  out_file: str
                  ):
@@ -159,8 +160,15 @@ def save_results(passages: Dict[object, Tuple[str, str]], questions: List[str], 
     for i, q in enumerate(questions):
         q_answers = answers[i]
         results_and_scores = top_passages_and_scores[i]
+        doc_ids = results_and_scores[0]
+        if passages is not None:
+            local_passages = {doc_id: passages[doc_id] for doc_id in doc_ids}
+        else:
+            resp = requests.post(corpus_endpoint, data=json.dumps({"doc_ids": doc_ids}), headers={"Content-Type": "application/json"})
+            local_passages = resp.json()
+            local_passages = {doc_id: (doc["text"], doc["title"]) for doc_id, doc in zip(doc_ids, local_passages)}
         hits = per_question_hits[i]
-        docs = [passages[doc_id] for doc_id in results_and_scores[0]]
+        docs = [local_passages[doc_id] for doc_id in results_and_scores[0]]
         scores = [str(score) for score in results_and_scores[1]]
         ctxs_num = len(hits)
 
@@ -291,7 +299,7 @@ def main(args):
                                   args.match)
 
     if args.out_file:
-        save_results(all_passages, questions, question_answers, top_ids_and_scores, questions_doc_hits, args.out_file)
+        save_results(all_passages, corpus_endpoint, questions, question_answers, top_ids_and_scores, questions_doc_hits, args.out_file)
 
 
 if __name__ == '__main__':

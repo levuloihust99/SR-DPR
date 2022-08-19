@@ -245,7 +245,6 @@ class DistributedFaissDenseIndexer(object):
             per_query_gathered_top_documents = []
             for per_query_shard in sharded_per_query_top_documents:
                 per_query_gathered_top_documents.extend(per_query_shard)
-            logger.info(per_query_gathered_top_documents[0])
             per_query_gathered_top_documents = \
                 sorted(per_query_gathered_top_documents, key=lambda x: x[1], reverse=True)
             per_query_gathered_top_documents = \
