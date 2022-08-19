@@ -127,7 +127,7 @@ def validate(passages: Dict[object, Tuple[str, str]], corpus_endpoint: str, answ
     logger.info('Validation results: top k documents hits %s', top_k_hits)
     top_k_hits = [v / len(result_ctx_ids) for v in top_k_hits]
     logger.info('Validation results: top k documents hits accuracy %s', top_k_hits)
-    return match_stats.questions_doc_hits
+    return match_stats
 
 
 def load_passages(ctx_file: str) -> Dict[object, Tuple[str, str]]:
@@ -295,10 +295,22 @@ def main(args):
     # if len(all_passages) == 0:
     #     raise RuntimeError('No passages data found. Please specify ctx_file param properly.')
 
-    questions_doc_hits = validate(all_passages, corpus_endpoint, question_answers, top_ids_and_scores, args.validation_workers,
+    validation_results = validate(all_passages, corpus_endpoint, question_answers, top_ids_and_scores, args.validation_workers,
                                   args.match)
+    questions_doc_hits = validation_results.questions_doc_hits
+    top_hits = validation_results.top_hits
+    top_hits = [hit / len(question_answers) for hit in top_hits]
+    pretty_results = ["Top {:03d}: {}".format(idx + 1, hit) for idx, hit in enumerate(top_hits)]
+    pretty_results = "\n".join(pretty_results)
+    if not os.path.exists(args.result_dir):
+        os.makedirs(args.result_dir)
+    with open(os.path.join(args.result_dir, "top_hits.txt"), "w") as writer:
+        writer.write(pretty_results + "\n")
+    with open(os.path.join(args.result_dir, "match_matrix.txt"), "w") as writer:
+        writer.write(json.dumps(questions_doc_hits) + "\n")
 
     if args.out_file:
+        logger.info("Saving retrieval results...")
         save_results(all_passages, corpus_endpoint, questions, question_answers, top_ids_and_scores, questions_doc_hits, args.out_file)
 
 
@@ -336,6 +348,7 @@ if __name__ == '__main__':
     parser.add_argument("--remote_corpus", action='store_true', help="If enabled, do not load corpus into RAM but make request to corpus endpoint")
     parser.add_argument("--corpus_endpoint", help="Corpus endpoint to get documents")
     parser.add_argument("--index_paths", help="Paths to save or load the FAISS indexes, comma seperated")
+    parser.add_argument("--result_dir", default="results", help="Path to save top_k_hits and questions_doc_hits result")
 
     args = parser.parse_args()
 
