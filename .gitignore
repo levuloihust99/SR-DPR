@@ -4,3 +4,6 @@ outputs/
 /checkpoints/
 *.egg-info/
 query_embeddings/
+.venv*/
+.vscode/
+downloads/
