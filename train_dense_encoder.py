@@ -192,22 +192,22 @@ class BiEncoderTrainer(object):
         # for distributed mode, save checkpoint for only one process
         save_cp = args.local_rank in [-1, 0]
 
-        if epoch == args.val_av_rank_start_epoch:
-            self.best_validation_result = None
+        # if epoch == args.val_av_rank_start_epoch:
+        #     self.best_validation_result = None
 
-        if epoch >= args.val_av_rank_start_epoch:
-            validation_loss = self.validate_average_rank()
-        else:
-            validation_loss = self.validate_nll()
+        # if epoch >= args.val_av_rank_start_epoch:
+        #     validation_loss = self.validate_average_rank()
+        # else:
+        #     validation_loss = self.validate_nll()
 
         if save_cp:
             cp_name = self._save_checkpoint(scheduler, epoch, iteration)
             logger.info('Saved checkpoint to %s', cp_name)
 
-            if validation_loss < (self.best_validation_result or validation_loss + 1):
-                self.best_validation_result = validation_loss
-                self.best_cp_name = cp_name
-                logger.info('New Best validation checkpoint %s', cp_name)
+            # if validation_loss < (self.best_validation_result or validation_loss + 1):
+            #     self.best_validation_result = validation_loss
+            #     self.best_cp_name = cp_name
+            #     logger.info('New Best validation checkpoint %s', cp_name)
 
     def validate_nll(self) -> float:
         logger.info('NLL validation ...')
