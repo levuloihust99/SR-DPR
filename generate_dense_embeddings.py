@@ -15,6 +15,8 @@ import pathlib
 
 import argparse
 import csv
+import sys
+csv.field_size_limit(sys.maxsize)
 import logging
 import pickle
 from typing import Iterable, Iterator, List, Tuple
@@ -95,7 +97,11 @@ def gen_ctx_vectors(ctx_rows: List[Tuple[object, str, str]], model: nn.Module, t
         loader = DataLoader(
             dataset, shuffle=False, collate_fn=collate_fn, drop_last=False, batch_size=bsz)
 
-    for batch_id, batch_token_tensors in tqdm(enumerate(loader), total=shard_size):
+    if shard_size is None:
+        total = None
+    else:
+        total = (shard_size - 1) // bsz + 1
+    for batch_id, batch_token_tensors in tqdm(enumerate(loader), total=total):
         ctx_ids_batch = move_to_device(torch.stack(batch_token_tensors, dim=0),args.device)
         ctx_seg_batch = move_to_device(torch.zeros_like(ctx_ids_batch),args.device)
         ctx_attn_mask = move_to_device(tensorizer.get_attn_mask(ctx_ids_batch),args.device)
@@ -130,28 +136,35 @@ def gen_ctx_vectors(ctx_rows: List[Tuple[object, str, str]], model: nn.Module, t
             yield results[:num_vectors_per_file]
             results = results[num_vectors_per_file:]
 
-    return results
+    yield results
 
 
-def get_corpus(
+def get_corpus_bulk(
     corpus_path: str,
     start_idx: int,
     end_idx: int,
-    corpus_reader: str = 'bulk'
 ):
     logger.info('Producing encodings for passages range: %d to %d', start_idx, end_idx)
     with open(corpus_path) as tsvfile:
-        reader = csv.reader(tsvfile, delimiter='\t')
-        if corpus_reader == 'bulk':
-            rows = []
-            rows.extend([(row[0], row[1], row[2]) for row in reader if row[0] != 'id'])
-            return rows[start_idx: end_idx]
-        elif corpus_reader == 'sequential':
-            if end_idx < 0:
-                end_idx = float('inf')
-            for idx, row in enumerate(reader):
-                if start_idx <= idx - 1 < end_idx:
-                    yield row[0], row[1], row[2]
+        reader = csv.reader(tsvfile, delimiter='\t', )
+        rows = []
+        rows.extend([(row[0], row[1], row[2]) for row in reader if row[0] != 'id'])
+        return rows[start_idx: end_idx] if end_idx >= 0 else rows[start_idx:]
+
+
+def get_corpus_sequential(
+    corpus_path: str,
+    start_idx: int,
+    end_idx: int,
+):
+    logger.info('Producing encodings for passages range: %d to %d', start_idx, end_idx)
+    with open(corpus_path) as tsvfile:
+        reader = csv.reader(tsvfile, delimiter='\t', )
+        if end_idx < 0:
+            end_idx = float('inf')
+        for idx, row in enumerate(reader):
+            if start_idx <= idx - 1 < end_idx:
+                yield row[0], row[1], row[2]
 
 
 def main(args):
@@ -181,12 +194,18 @@ def main(args):
 
     logger.info('reading data from file=%s', args.ctx_file)
 
-    rows = get_corpus(
-        corpus_path=args.ctx_file,
-        start_idx=args.start_idx,
-        end_idx=args.end_idx,
-        corpus_reader=args.ctx_file_reader
-    )
+    if args.ctx_file_reader == 'bulk':
+        rows = get_corpus_bulk(
+            corpus_path=args.ctx_file,
+            start_idx=args.start_idx,
+            end_idx=args.end_idx,
+        )
+    else:
+        rows = get_corpus_sequential(
+            corpus_path=args.ctx_file,
+            start_idx=args.start_idx,
+            end_idx=args.end_idx,
+        )
 
     data_generator = gen_ctx_vectors(
         rows, encoder, tensorizer, True, fp16=args.fp16, num_vectors_per_file=args.num_vectors_per_file, shard_size=args.ctx_corpus_size)
