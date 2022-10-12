@@ -11,6 +11,8 @@
  Pipeline to train DPR Biencoder
 """
 
+import hashlib
+import pickle
 import argparse
 import glob
 import logging
@@ -30,6 +32,7 @@ from torch.utils.checkpoint import get_device_states, set_device_states
 from torch.utils.data import IterableDataset, DataLoader
 
 from dpr.models import init_biencoder_components
+from dpr.models import biencoder
 from dpr.models.biencoder import BiEncoder, BiEncoderNllLoss, BiEncoderBatch
 from dpr.options import add_encoder_params, add_training_params, setup_args_gpu, set_seed, print_args, \
     get_encoder_params_state, add_tokenizer_params, set_encoder_params_from_state
@@ -37,17 +40,7 @@ from dpr.utils.data_utils import ShardedDataIterator, read_data_from_json_files,
 from dpr.utils.dist_utils import all_gather_list
 from dpr.utils.model_utils import setup_for_distributed_mode, move_to_device, get_schedule_linear, CheckpointState, \
     get_model_file, get_model_obj, load_states_from_checkpoint
-
-logging.basicConfig(
-    format='%(asctime)s %(levelname)-8s %(message)s',
-    level=logging.INFO,
-    datefmt='%Y-%m-%d %H:%M:%S')
-logger = logging.getLogger()
-logger.setLevel(logging.INFO)
-if (logger.hasHandlers()):
-    logger.handlers.clear()
-console = logging.StreamHandler()
-logger.addHandler(console)
+from srdpr.utils.logging_utils import add_color_formatter
 
 
 class RandContext:
@@ -174,7 +167,16 @@ class BiEncoderTrainer(object):
 
         if self.scheduler_state:
             logger.info("Loading scheduler state %s", self.scheduler_state)
-            scheduler.load_state_dict(self.scheduler_state)
+            # scheduler.load_state_dict(self.scheduler_state)
+            shift = int(self.scheduler_state["last_epoch"])
+            logger.info("Steps shift %d", shift)
+            scheduler = get_schedule_linear(
+                self.optimizer,
+                warmup_steps,
+                total_updates,
+                steps_shift=shift
+            )
+
 
         eval_step = math.ceil(updates_per_epoch / args.eval_per_epoch)
         logger.info("  Eval step = %d", eval_step)
@@ -200,8 +202,21 @@ class BiEncoderTrainer(object):
         # else:
         #     validation_loss = self.validate_nll()
 
+        # < save RNG state
+        cpu_state = torch.get_rng_state()
+        if self.args.device.type == 'cuda':
+            cuda_state = torch.cuda.get_rng_state()
+        else:
+            cuda_state = None
+        if self.args.distributed_world_size > 1:
+            cuda_states = all_gather_list(cuda_state)
+        else:
+            cuda_states = [cuda_state]
+        rng_states = {'cpu_state': cpu_state, 'cuda_states': cuda_states}
+        # save RNG state />
+
         if save_cp:
-            cp_name = self._save_checkpoint(scheduler, epoch, iteration)
+            cp_name = self._save_checkpoint(scheduler, epoch, iteration, rng_states=rng_states)
             logger.info('Saved checkpoint to %s', cp_name)
 
             # if validation_loss < (self.best_validation_result or validation_loss + 1):
@@ -377,14 +392,15 @@ class BiEncoderTrainer(object):
 
         train_data_iterator.set_epoch(epoch=epoch)
         start_iteration = train_data_iterator.get_iteration() + 1
+        saved_iteration = -1
 
         loader = DataLoader(train_data_iterator, num_workers=1, batch_size=None, shuffle=False)
 
         for i, biencoder_batch in enumerate(loader):
-
             # to be able to resume shuffled ctx- pools
             data_iteration = i + start_iteration
 
+            # need to change
             if args.grad_cache:
                 loss, correct_cnt = _do_biencoder_fwd_bwd_pass_cached(
                     self.biencoder, biencoder_batch, self.tensorizer, args, self)
@@ -395,6 +411,7 @@ class BiEncoderTrainer(object):
                     self.scaler.scale(_loss).backward()
                 else:
                     _loss.backward()
+            # need to change
 
             epoch_correct_predictions += correct_cnt
             epoch_loss += loss.item()
@@ -414,7 +431,7 @@ class BiEncoderTrainer(object):
                 scheduler.step()
                 self.biencoder.zero_grad()
 
-            if i % log_result_step == 0:
+            if (i + 1) % log_result_step == 0:
                 lr = self.optimizer.param_groups[0]['lr']
                 logger.info(
                     'Epoch: %d: Step: %d/%d, loss=%f, lr=%f', epoch, data_iteration, epoch_batches, loss.item(), lr)
@@ -427,16 +444,21 @@ class BiEncoderTrainer(object):
 
             if data_iteration % eval_step == 0:
                 logger.info('Validation: Epoch: %d Step: %d/%d', epoch, data_iteration, epoch_batches)
-                self.validate_and_save(epoch, i + start_iteration, scheduler)
+                if data_iteration == train_data_iterator.max_iterations:
+                    data_iteration = 0
+                saved_iteration = data_iteration
+                self.validate_and_save(epoch, data_iteration, scheduler)
                 self.biencoder.train()
-
-        self.validate_and_save(epoch, data_iteration, scheduler)
+            
+        if data_iteration != saved_iteration:
+            self.validate_and_save(epoch, data_iteration, scheduler)
+            self.biencoder.train()
 
         epoch_loss = (epoch_loss / epoch_batches) if epoch_batches > 0 else 0
         logger.info('Av Loss per epoch=%f', epoch_loss)
         logger.info('epoch total correct predictions=%d', epoch_correct_predictions)
 
-    def _save_checkpoint(self, scheduler, epoch: int, offset: int) -> str:
+    def _save_checkpoint(self, scheduler, epoch: int, offset: int, rng_states) -> str:
         args = self.args
         model_to_save = get_model_obj(self.biencoder)
         cp = os.path.join(args.output_dir,
@@ -450,7 +472,9 @@ class BiEncoderTrainer(object):
                                 offset,
                                 epoch, meta_params
                                 )
-        torch.save(state._asdict(), cp)
+        # torch.save(state._asdict(), cp)
+        state_to_save = {**state._asdict(), **rng_states}
+        torch.save(state_to_save, cp)
         logger.info('Saved checkpoint at %s', cp)
         return cp
 
@@ -766,6 +790,12 @@ def main():
     parser.add_argument('--checkpoint_file_name', type=str, default='dpr_biencoder', help="Checkpoints file prefix")
 
     args = parser.parse_args()
+
+    logging.basicConfig(level=logging.INFO)
+    add_color_formatter(logging.root)
+
+    global logger
+    logger = logging.getLogger(__name__)
 
     if args.gradient_accumulation_steps < 1:
         raise ValueError("Invalid gradient_accumulation_steps parameter: {}, should be >= 1".format(

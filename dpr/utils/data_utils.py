@@ -153,20 +153,35 @@ class ShardedDataIterableDataset(ShardedDataIterator, IterableDataset):
     def set_epoch(self, epoch: int):
         self.epoch = epoch
 
+    # def __iter__(self):
+    #     if self.shuffle:
+    #         # to be able to resume, same shuffling should be used when starting from a failed/stopped iteration
+    #         epoch_rnd = random.Random(self.shuffle_seed + self.epoch)
+    #         epoch_rnd.shuffle(self.data)
+
+    #     # if resuming iteration somewhere in the middle of epoch, one needs to adjust max_iterations
+    #     self._max_iterations = self.max_iterations - self.iteration
+    #     self.shard_samples = self.data[self.shard_start_idx:self.shard_end_idx]
+    #     self.idx_gen = iter(range(self.iteration * self.batch_size, len(self.shard_samples), self.batch_size))
+    #     self.iteration = 0
+    #     self._ended = False
+
+    #     return self
+    
+    # < srdpr
     def __iter__(self):
         if self.shuffle:
             # to be able to resume, same shuffling should be used when starting from a failed/stopped iteration
             epoch_rnd = random.Random(self.shuffle_seed + self.epoch)
             epoch_rnd.shuffle(self.data)
 
-        # if resuming iteration somewhere in the middle of epoch, one needs to adjust max_iterations
-        self._max_iterations = self.max_iterations - self.iteration
-        self.shard_samples = self.data[self.shard_start_idx:self.shard_end_idx]
+        self._max_iterations = self.max_iterations
+        self.shard_samples = self.data[self.shard_start_idx: self.shard_end_idx]
         self.idx_gen = iter(range(self.iteration * self.batch_size, len(self.shard_samples), self.batch_size))
-        self.iteration = 0
         self._ended = False
 
         return self
+    # srdpr />
 
     def __next__(self):
         if not self._ended:

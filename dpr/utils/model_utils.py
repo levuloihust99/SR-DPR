@@ -84,12 +84,13 @@ def move_to_device(sample, device):
     return _move_to_device(sample, device)
 
 
-def get_schedule_linear(optimizer, warmup_steps, training_steps, last_epoch=-1):
+def get_schedule_linear(optimizer, warmup_steps, training_steps, steps_shift=0, last_epoch=-1):
     """ Create a schedule with a learning rate that decreases linearly after
     linearly increasing during a warmup period.
     """
 
     def lr_lambda(current_step):
+        current_step += steps_shift
         if current_step < warmup_steps:
             return float(current_step) / float(max(1, warmup_steps))
         return max(
@@ -131,4 +132,17 @@ def load_states_from_checkpoint(model_file: str) -> CheckpointState:
     logger.info('Reading saved model from %s', model_file)
     state_dict = torch.load(model_file, map_location=lambda s, l: default_restore_location(s, 'cpu'))
     logger.info('model_state_dict keys %s', state_dict.keys())
+    # restore RNG
+    cpu_state = state_dict.pop('cpu_state', None)
+    cuda_states = state_dict.pop('cuda_states', None)
+    if cpu_state is not None:
+        torch.set_rng_state(cpu_state)
+    if cuda_states is not None:
+        if torch.cuda.is_available() > 0:
+            device_id = torch.cuda.current_device()
+            if device_id < len(cuda_states):
+                try:
+                    torch.cuda.set_rng_state(cuda_states[device_id])
+                except Exception:
+                    logger.info("Invalid RNG state restored from checkpoint file '{}'".format(model_file))
     return CheckpointState(**state_dict)

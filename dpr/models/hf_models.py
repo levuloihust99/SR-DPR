@@ -109,9 +109,8 @@ class HFBertEncoder(BertModel):
     @classmethod
     def init_encoder(cls, cfg_name: str, projection_dim: int = 0, dropout: float = 0.1, **kwargs) -> BertModel:
         cfg = BertConfig.from_pretrained(cfg_name if cfg_name else 'bert-base-uncased')
-        if dropout != 0:
-            cfg.attention_probs_dropout_prob = dropout
-            cfg.hidden_dropout_prob = dropout
+        cfg.attention_probs_dropout_prob = dropout
+        cfg.hidden_dropout_prob = dropout
         return cls.from_pretrained(cfg_name, config=cfg, project_dim=projection_dim, **kwargs)
 
     def forward(self, input_ids: T, token_type_ids: T, attention_mask: T) -> Tuple[T, ...]:
