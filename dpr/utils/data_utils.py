@@ -80,10 +80,11 @@ class ShardedDataIterator(object):
 
         self.shard_end_idx = min(self.shard_start_idx + samples_per_shard, total_size)
 
-        if strict_batch_size:
-            self.max_iterations = math.ceil(samples_per_shard / batch_size)
-        else:
-            self.max_iterations = int(samples_per_shard / batch_size)
+        # if strict_batch_size:
+        #     self.max_iterations = math.ceil(samples_per_shard / batch_size)
+        # else:
+        #     self.max_iterations = int(samples_per_shard / batch_size)
+        self.max_iterations = math.ceil(samples_per_shard / batch_size)
 
         logger.debug(
             'samples_per_shard=%d, shard_start_idx=%d, shard_end_idx=%d, max_iterations=%d', samples_per_shard,

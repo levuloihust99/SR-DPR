@@ -116,7 +116,7 @@ class BiEncoderTrainer(object):
         return ShardedDataIterator(data, shard_id=self.shard_id,
                                    num_shards=self.distributed_factor,
                                    batch_size=batch_size, shuffle=shuffle, shuffle_seed=shuffle_seed, offset=offset,
-                                   strict_batch_size=True,  # this is not really necessary, one can probably disable it
+                                   strict_batch_size=False,  # this is not really necessary, one can probably disable it
                                    )
 
     def get_data_iterable(self, path: str, batch_size: int, shuffle=True,
@@ -136,7 +136,7 @@ class BiEncoderTrainer(object):
             shard_id=self.shard_id,
             num_shards=self.distributed_factor,
             batch_size=batch_size, shuffle=shuffle, shuffle_seed=shuffle_seed, offset=offset,
-            strict_batch_size=True,  # this is not really necessary, one can probably disable it
+            strict_batch_size=False,  # this is not really necessary, one can probably disable it
         )
 
     def run_train(self, ):

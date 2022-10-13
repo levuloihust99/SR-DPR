@@ -327,3 +327,5 @@ GC-DPR inherits DPR's CC-BY-NC 4.0 licensed as of now.
 
 ## Resume training
 To be able to perfectly resume training, you should set `strict_batch_size=False`. When `strict_batch_size=True`, the non-complete batch (the last batch) is extended by repeatedly appending the first sample in the dataset (after shuffling). However, this sample is already manipulated in the first iteration of the epoch, hence its `hard_negative_ctxs` is shuffled. In contrast, when resuming training in the middle of the epoch, this first sample is not yet manipulated!
+
+Currently, one should not set `eval_per_epoch` > 1. Since iterating through dataset is done in a subprocess, the start iteration remains in the middle of the epoch for every epoch. For now, set `eval_per_epoch=1`
