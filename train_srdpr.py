@@ -26,10 +26,6 @@ def main(cfg: DictConfig):
 
     cfg = dictconfig_to_namespace(cfg)
 
-    if cfg.gradient_accumulation_steps < 1:
-        raise ValueError("Invalid gradient_accumulation_steps parameter: {}, should be >= 1".format(
-            cfg.gradient_accumulation_steps))
-
     if cfg.output_dir is not None:
         os.makedirs(cfg.output_dir, exist_ok=True)
 
@@ -53,7 +49,7 @@ def main(cfg: DictConfig):
                                                     cfg.fp16_opt_level)
     
     dataset = ByteDataset(data_path=cfg.bytedataset, idx_record_size=6)
-    pipelines_to_build = cfg.train_mode.split(',')
+    pipelines_to_build = cfg.train_mode.split('+')
     iterators = {}
     if POSHARD_PIPELINE_NAME in pipelines_to_build:
         iterators[POSHARD_PIPELINE_NAME] = PoshardDataIterator(
@@ -72,6 +68,7 @@ def main(cfg: DictConfig):
             contrastive_size=getattr(cfg.pipeline, HARD_PIPELINE_NAME).contrastive_size
         )
 
+    scheduler = get_schedule_linear(optimizer, cfg.warmup_steps, cfg.total_updates)
     if saved_state is not None:
         # Load saved state
         model_to_load = get_model_obj(biencoder)
@@ -81,7 +78,7 @@ def main(cfg: DictConfig):
         if saved_state.optimizer_dict:
             logger.info('Loading saved optimizer state ...')
             optimizer.load_state_dict(saved_state.optimizer_dict)
-
+        
         if saved_state.scheduler_dict:
             scheduler_state = saved_state.scheduler_dict
             logger.info("Loading scheduler state %s", scheduler_state)
@@ -114,14 +111,7 @@ def main(cfg: DictConfig):
         iterators=iterators
     )
 
-    if cfg.train_file is not None:
-        trainer.run_train()
-    elif cfg.model_file and cfg.dev_file:
-        logger.info("No train files are specified. Run 2 types of validation for specified model file")
-        trainer.validate_nll()
-        trainer.validate_average_rank()
-    else:
-        logger.warning("Neither train_file or (model_file & dev_file) parameters are specified. Nothing to do.")
+    trainer.run_train()
 
 
 if __name__ == "__main__":

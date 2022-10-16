@@ -283,8 +283,9 @@ class PoshardDataIterator(object):
         contrastive_size = min(dynamic_contrastive_size, self.contrastive_size)
         hardneg_padding_lens = []
         batch_hardneg_mask = []
-        for hardneg_contexts in batch_hardneg_contexts:
-            hardneg_contexts = hardneg_contexts[:contrastive_size]
+        for idx, hardneg_contexts in enumerate(batch_hardneg_contexts):
+            batch_hardneg_contexts[idx] = hardneg_contexts[:contrastive_size]
+            hardneg_contexts = batch_hardneg_contexts[idx]
             hardneg_mask = [1] * len(hardneg_contexts)
             padding_len = contrastive_size - len(hardneg_contexts)
             hardneg_padding_lens.append(padding_len)
@@ -294,7 +295,7 @@ class PoshardDataIterator(object):
         batch_hardneg_mask = torch.tensor(batch_hardneg_mask)
         batch_size = batch_hardneg_mask.size(0)
         batch_hardneg_mask = torch.cat([torch.ones(batch_size, 1, dtype=torch.long),
-            batch_hardneg_mask], dim=0)
+            batch_hardneg_mask], dim=1)
         
         # tokenize
         max_batch_question_len = 0

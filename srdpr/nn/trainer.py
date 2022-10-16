@@ -29,14 +29,13 @@ class SRBiEncoderTrainer(object):
         optimizer,
         scheduler,
         iterators,
-        loss_calculator: LossCalculator
     ):
         self.cfg = cfg
         self.biencoder = biencoder
         self.optimizer = optimizer
         self.scheduler = scheduler
         self.iterators = iterators
-        self.loss_calculator = loss_calculator
+        self.loss_calculator = LossCalculator()
         self.scaler = GradScaler() if cfg.fp16 else None
         self._setup_pipeline()
 
@@ -134,8 +133,8 @@ class SRBiEncoderTrainer(object):
     def run_train(self):
         for step in range(self.cfg.total_updates):
             per_step_loss = self.train_step(step)
-            if (step + 1) % self.cfg.log_result_step == 0:
-                logger.info("Step: {}/{} :: Loss = {}".format(step + 1, self.cfg.num_updates,
+            if (step + 1) % self.cfg.log_batch_step == 0:
+                logger.info("Step: {}/{} :: Loss = {}".format(step + 1, self.cfg.total_updates,
                     per_step_loss))
             if (step + 1) % self.cfg.save_checkpoint_freq == 0:
                 self.validate_and_save(step)
@@ -147,7 +146,7 @@ class SRBiEncoderTrainer(object):
 
         per_update_loss = 0.0
         for batch in batches:
-            loss = computation_fn(batch, getattr(self.cfg, pipeline).gradient_accumulate_steps)
+            loss = computation_fn(batch, getattr(self.cfg.pipeline, pipeline).gradient_accumulate_steps)
             per_update_loss += loss
 
         per_update_loss /= len(batches)
@@ -169,7 +168,7 @@ class SRBiEncoderTrainer(object):
     def fetch_batches(self, pipeline):
         iterator = self.iterators[pipeline]
         batches = []
-        num_batches = getattr(self.cfg, pipeline).gradient_accumulate_steps
+        num_batches = getattr(self.cfg.pipeline, pipeline).gradient_accumulate_steps
         for _ in range(num_batches):
             batches.append(next(iterator))
         return batches
@@ -197,11 +196,11 @@ class SRBiEncoderTrainer(object):
         duplicate_mask = batch['duplicate_mask']
 
         if self.cfg.grad_cache:
-            self._pos_randneg_computation_grad_cache(question_input_ids, question_attn_mask,
+            return self._pos_randneg_computation_grad_cache(question_input_ids, question_attn_mask,
                 positive_context_input_ids, positive_context_attn_mask, negative_context_input_ids,
                 negative_context_attn_mask, duplicate_mask, gradient_accumulate_steps)
         else:
-            self._pos_randneg_computation_no_cache(question_input_ids, question_attn_mask,
+            return self._pos_randneg_computation_no_cache(question_input_ids, question_attn_mask,
                 positive_context_input_ids, positive_context_attn_mask, negative_context_input_ids,
                 negative_context_attn_mask, duplicate_mask, gradient_accumulate_steps)
     
@@ -438,15 +437,16 @@ class SRBiEncoderTrainer(object):
         positive_context_attn_mask = batch['positive_context/attn_mask']
         hardneg_context_input_ids = batch['hardneg_context/input_ids']
         hardneg_context_attn_mask = batch['hardneg_context/attn_mask']
+        hardneg_mask = batch['hardneg_mask']
 
         if self.cfg.grad_cache:
-            self._pos_hardneg_computation_grad_cache(question_input_ids, question_attn_mask,
-                positive_context_input_ids, positive_context_attn_mask,
-                hardneg_context_input_ids, hardneg_context_input_ids, gradient_accumulate_steps)
+            return self._pos_hardneg_computation_grad_cache(question_input_ids, question_attn_mask,
+                positive_context_input_ids, positive_context_attn_mask, hardneg_context_input_ids,
+                hardneg_context_attn_mask, hardneg_mask, gradient_accumulate_steps)
         else:
-            self._pos_hardneg_computation_no_cache(question_input_ids, question_attn_mask,
-                positive_context_input_ids, positive_context_attn_mask,
-                hardneg_context_input_ids, hardneg_context_attn_mask, gradient_accumulate_steps)
+            return self._pos_hardneg_computation_no_cache(question_input_ids, question_attn_mask,
+                positive_context_input_ids, positive_context_attn_mask, hardneg_context_input_ids,
+                hardneg_context_attn_mask, hardneg_mask, gradient_accumulate_steps)
 
     def _pos_hardneg_computation_no_cache(
         self,
@@ -461,11 +461,11 @@ class SRBiEncoderTrainer(object):
     ):
         forward_batch_size, contrastive_size, ctx_seq_len = hardneg_context_input_ids.size()
         hardneg_context_input_ids_2d = hardneg_context_input_ids.view(-1, ctx_seq_len)
-        hardneg_context_attn_mask_2d = hardneg_context_input_ids.view(-1, ctx_seq_len)
+        hardneg_context_attn_mask_2d = hardneg_context_attn_mask.view(-1, ctx_seq_len)
 
         local_q_vector = self._get_q_representations(question_input_ids, question_attn_mask)
         local_positive_ctxs_vector = self._get_ctx_representations(positive_context_input_ids, positive_context_attn_mask)
-        local_hardneg_ctxs_vector = self._get_ctx_representations(hardneg_context_input_ids_2d, hardneg_context_attn_mask)
+        local_hardneg_ctxs_vector = self._get_ctx_representations(hardneg_context_input_ids_2d, hardneg_context_attn_mask_2d)
         
         # all gather
         distributed_world_size = self.cfg.distributed_world_size or 1
@@ -488,11 +488,11 @@ class SRBiEncoderTrainer(object):
                 if i != self.cfg.local_rank:
                     global_q_vector.append(q_vector.to(local_q_vector.device))
                     global_positive_ctxs_vector.append(positive_ctxs_vector.to(local_q_vector.device))
-                    global_hardneg_ctxs_vector.append(hardneg_ctxs_vector.to(local_q_vector.device))
+                    global_hardneg_ctxs_vector.append(hardneg_ctxs_vector.view(forward_batch_size, contrastive_size, -1).to(local_q_vector.device))
                 else:
                     global_q_vector.append(local_q_vector)
                     global_positive_ctxs_vector.append(local_positive_ctxs_vector)
-                    global_hardneg_ctxs_vector.append(local_hardneg_ctxs_vector)
+                    global_hardneg_ctxs_vector.append(local_hardneg_ctxs_vector.view(forward_batch_size, contrastive_size, -1))
 
             global_q_vector = torch.cat(global_q_vector, dim=0)
             global_positive_ctxs_vector = torch.cat(global_positive_ctxs_vector, dim=0)
@@ -500,7 +500,7 @@ class SRBiEncoderTrainer(object):
         else:
             global_q_vector = local_q_vector
             global_positive_ctxs_vector = local_positive_ctxs_vector
-            global_hardneg_ctxs_vector = local_hardneg_ctxs_vector
+            global_hardneg_ctxs_vector = local_hardneg_ctxs_vector.view(forward_batch_size, contrastive_size, -1)
 
         loss = self.loss_calculator.compute(
             inputs={
@@ -606,11 +606,11 @@ class SRBiEncoderTrainer(object):
                 if i != self.cfg.local_rank:
                     global_q_vector.append(q_vector.to(all_q_reps.device))
                     global_positive_ctxs_vector.append(positive_ctxs_vector.to(all_q_reps.device))
-                    global_hardneg_ctxs_vector.append(hardneg_ctxs_vector.view(forward_batch_size, contrastive_size, ctx_seq_len).to(all_q_reps.device))
+                    global_hardneg_ctxs_vector.append(hardneg_ctxs_vector.view(forward_batch_size, contrastive_size, -1).to(all_q_reps.device))
                 else:
                     global_q_vector.append(all_q_reps)
                     global_positive_ctxs_vector.append(all_positive_ctx_reps)
-                    global_hardneg_ctxs_vector.append(all_hardneg_ctx_reps.view(forward_batch_size, contrastive_size, ctx_seq_len))
+                    global_hardneg_ctxs_vector.append(all_hardneg_ctx_reps.view(forward_batch_size, contrastive_size, -1))
 
             global_q_vector = torch.cat(global_q_vector, dim=0)
             global_positive_ctxs_vector = torch.cat(global_positive_ctxs_vector, dim=0)
@@ -618,7 +618,7 @@ class SRBiEncoderTrainer(object):
         else:
             global_q_vector = all_q_reps
             global_positive_ctxs_vector = all_positive_ctx_reps
-            global_hardneg_ctxs_vector = all_hardneg_ctx_reps.view(forward_batch_size, contrastive_size, ctx_seq_len)
+            global_hardneg_ctxs_vector = all_hardneg_ctx_reps.view(forward_batch_size, contrastive_size, -1)
 
         loss = self.loss_calculator.compute(
             inputs=

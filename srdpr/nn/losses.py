@@ -55,7 +55,7 @@ class LossCalculator(object):
             [positive_sim_scores, negative_sim_scores],
             dim=-1
         )
-        sim_matrix.masked_fill_(~duplicate_mask, -1e9)
+        sim_matrix.masked_fill_(1 - duplicate_mask, -1e9)
         logits = F.log_softmax(sim_matrix, dim=-1)
         loss = logits[:, 0]
         loss = - torch.sum(loss) / batch_size
@@ -75,7 +75,7 @@ class LossCalculator(object):
             [positive_sim_scores, hardneg_sim_scores],
             dim=-1
         )
-        sim_matrix.masked_fill_(~hardneg_mask, -1e9)
+        sim_matrix.masked_fill_(1 - hardneg_mask, -1e9)
         logits = F.log_softmax(sim_matrix, dim=-1)
         loss = logits[:, 0]
         loss = - torch.sum(loss) / batch_size
