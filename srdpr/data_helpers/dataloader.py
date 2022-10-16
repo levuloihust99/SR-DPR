@@ -198,14 +198,27 @@ class PoshardDataIterator(object):
         self,
         dataset: ByteDataset,
         idxs_generator: StatelessIdxsGenerator,
-        batch_size: int,
-        collate_fn=None
+        tokenizer,
+        forward_batch_size: int,
+        contrastive_size: int,
+        limit_hardnegs: int,
+        prefetch_factor: int = 10,
+        shuffle_positive: bool = False,
+        shuffle: bool = True,
+        max_length: int =  512
     ):
         self.dataset = dataset
         self.idxs_generator = idxs_generator
-        self.batch_size = batch_size
-        self.iterator = iter(self.idxs_generator)
-        self.collate_fn = collate_fn
+        self.tokenizer = tokenizer
+        self.forward_batch_size = forward_batch_size
+        self.contrastive_size = contrastive_size
+        self.limit_hardnegs = limit_hardnegs
+        self.shuffle_positive = shuffle_positive
+        self.shuffle = shuffle
+        self.max_length = max_length
+        self.data_queue = mp.Queue(maxsize=prefetch_factor)
+        self.feeding_worker = mp.Process(target=self.feeding, args=(self.data_queue, dataset,
+            idxs_generator, forward_batch_size, self.collate_fn))
 
     def __next__(self):
         idxs = [next(self.iterator) for _ in range(self.batch_size)]
@@ -215,6 +228,109 @@ class PoshardDataIterator(object):
                 self.idxs_generator.epoch + self.idxs_generator.iteration)
             return self.collate_fn(items)
         return items
+    
+    @staticmethod
+    def feeding(
+        data_queue,
+        dataset,
+        idxs_generator,
+        forward_batch_size,
+        collate_fn
+    ):
+        idxs_iterator = iter(idxs_generator)
+        while True:
+            idxs = [next(idxs_iterator) for _ in range(forward_batch_size)]
+            items = [dataset[idx] for idx in idxs]
+            if collate_fn:
+                random.seed(idxs_generator.shuffle_seed + idxs_generator.epoch + idxs_generator.iteration)
+                items = collate_fn(items)
+            data_queue.put((items, {'epoch': idxs_generator.epoch, 'iteration': idxs_generator.iteration}))
+
+    def collate_fn(self, items):
+        """This function performs dynamic contrastive size."""
+
+        dynamic_contrastive_size = 0
+        batch_questions = []
+        batch_positive_contexts = []
+        batch_hardneg_contexts = []
+
+        # sample and padding
+        for item in items:
+            questions = copy.copy(item['questions'])
+            random.shuffle(questions)
+            question = questions[0]
+            batch_questions.append(question)
+
+            positive_contexts = copy.copy(item['positive_contexts'])
+            if self.shuffle_positive:
+                random.shuffle(positive_contexts)
+            positive_context = copy.copy(positive_contexts[0])
+            batch_positive_contexts.append(positive_context)
+
+            hardneg_contexts = copy.copy(item['hardneg_contexts'])
+            if self.limit_hardnegs > 0:
+                hardneg_contexts = hardneg_contexts[:self.limit_hardnegs]
+            if self.shuffle:
+                random.shuffle(hardneg_contexts)
+            if dynamic_contrastive_size < len(hardneg_contexts):
+                dynamic_contrastive_size = len(hardneg_contexts)
+            batch_hardneg_contexts.append(hardneg_contexts)
+        
+        contrastive_size = min(dynamic_contrastive_size, self.contrastive_size)
+        hardneg_padding_lens = []
+        for hardneg_contexts in batch_hardneg_contexts:
+            hardneg_contexts = hardneg_contexts[:contrastive_size]
+            hardneg_mask = [1] * len(hardneg_contexts)
+            padding_len = contrastive_size - len(hardneg_contexts)
+            hardneg_padding_lens.append(padding_len)
+            if padding_len > 0:
+                hardneg_mask += [0] * padding_len
+        
+        # tokenize
+        max_batch_question_len = 0
+        batch_question_ids = []
+        for question in batch_questions:
+            question = normalize_question(question)
+            question = question.strip()
+            question_ids = self.tokenizer.encode(question, add_special_tokens=True)
+            if len(question_ids) > self.max_length:
+                question_ids = question_ids[:self.max_length]
+                question_ids[-1] = self.tokenizer.sep_token_id
+            batch_question_ids.append(question_ids)
+            if max_batch_question_len < len(question_ids):
+                max_batch_question_len = len(question_ids)
+
+        batch_questions_tensors = []
+        batch_questions_attn_mask = []
+        for question_ids in batch_question_ids:
+            q_attn_mask = [1] * len(question_ids)
+            padding_len = max_batch_question_len - len(question_ids)
+            if padding_len > 0:
+                question_ids += [self.tokenizer.pad_token_id] * padding_len
+                q_attn_mask += [0] * padding_len
+            batch_questions_tensors.append(question_ids)
+            batch_questions_attn_mask.append(q_attn_mask)
+        batch_questions_tensors = torch.tensor(batch_questions_tensors)
+        batch_questions_attn_mask = torch.tensor(batch_questions_attn_mask)
+
+        max_batch_context_len = 0
+        batch_positive_context_ids = []
+        for positive_context in batch_positive_contexts:
+            recursive_apply(positive_context, fn=lambda x: x.strip())
+            positive_context_ids = self.tokenizer.encode(positive_context['title'],
+                    text_pair=positive_context['text'], add_special_tokens=True)
+            if len(positive_context_ids) > self.max_length:
+                positive_context_ids = positive_context_ids[:self.max_length]
+                positive_context_ids[-1] = self.tokenizer.sep_token_id
+            if max_batch_context_len < len(positive_context_ids):
+                max_batch_context_len = len(positive_context_ids)
+            batch_positive_context_ids.append(positive_context_ids)
+        
+        for hardneg_contexts in batch_hardneg_contexts:
+            hardneg_contexts = [copy.copy(c) for c in hardneg_contexts]
+            recursive_apply(hardneg_contexts, fn=lambda x: x.strip())
+            for hardneg_context in hardneg_contexts:
+                hardneg_context_ids = []
 
 
 class HardDataIterator(object):
