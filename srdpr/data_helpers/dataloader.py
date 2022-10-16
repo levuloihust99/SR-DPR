@@ -64,6 +64,9 @@ class PosDataIterator(object):
         self.feeding_worker.start()
         self.buffer = deque(maxlen=forward_batch_size + contrastive_size)
     
+    def __iter__(self):
+        return self
+    
     def __next__(self):
         batch, update = self.data_queue.get()
         self.idxs_generator.set_epoch(update['epoch'])
@@ -201,7 +204,7 @@ class PoshardDataIterator(object):
         tokenizer,
         forward_batch_size: int,
         contrastive_size: int,
-        limit_hardnegs: int,
+        limit_hardnegs: int = -1,
         prefetch_factor: int = 10,
         shuffle_positive: bool = False,
         shuffle: bool = True,
@@ -219,16 +222,17 @@ class PoshardDataIterator(object):
         self.data_queue = mp.Queue(maxsize=prefetch_factor)
         self.feeding_worker = mp.Process(target=self.feeding, args=(self.data_queue, dataset,
             idxs_generator, forward_batch_size, self.collate_fn))
+        self.feeding_worker.start()
+
+    def __iter__(self):
+        return self
 
     def __next__(self):
-        idxs = [next(self.iterator) for _ in range(self.batch_size)]
-        items = [self.dataset[idx] for idx in idxs]
-        if self.collate_fn:
-            random.seed(self.idxs_generator.shuffle_seed + 
-                self.idxs_generator.epoch + self.idxs_generator.iteration)
-            return self.collate_fn(items)
-        return items
-    
+        batch, update = self.data_queue.get()
+        self.idxs_generator.set_epoch(update['epoch'])
+        self.idxs_generator.set_iteration(update['iteration'])
+        return batch
+
     @staticmethod
     def feeding(
         data_queue,
@@ -278,6 +282,7 @@ class PoshardDataIterator(object):
         
         contrastive_size = min(dynamic_contrastive_size, self.contrastive_size)
         hardneg_padding_lens = []
+        batch_hardneg_mask = []
         for hardneg_contexts in batch_hardneg_contexts:
             hardneg_contexts = hardneg_contexts[:contrastive_size]
             hardneg_mask = [1] * len(hardneg_contexts)
@@ -285,6 +290,11 @@ class PoshardDataIterator(object):
             hardneg_padding_lens.append(padding_len)
             if padding_len > 0:
                 hardneg_mask += [0] * padding_len
+            batch_hardneg_mask.append(hardneg_mask)
+        batch_hardneg_mask = torch.tensor(batch_hardneg_mask)
+        batch_size = batch_hardneg_mask.size(0)
+        batch_hardneg_mask = torch.cat([torch.ones(batch_size, 1, dtype=torch.long),
+            batch_hardneg_mask], dim=0)
         
         # tokenize
         max_batch_question_len = 0
@@ -300,18 +310,18 @@ class PoshardDataIterator(object):
             if max_batch_question_len < len(question_ids):
                 max_batch_question_len = len(question_ids)
 
-        batch_questions_tensors = []
-        batch_questions_attn_mask = []
+        batch_question_tensors = []
+        batch_question_attn_mask = []
         for question_ids in batch_question_ids:
             q_attn_mask = [1] * len(question_ids)
             padding_len = max_batch_question_len - len(question_ids)
             if padding_len > 0:
                 question_ids += [self.tokenizer.pad_token_id] * padding_len
                 q_attn_mask += [0] * padding_len
-            batch_questions_tensors.append(question_ids)
-            batch_questions_attn_mask.append(q_attn_mask)
-        batch_questions_tensors = torch.tensor(batch_questions_tensors)
-        batch_questions_attn_mask = torch.tensor(batch_questions_attn_mask)
+            batch_question_tensors.append(question_ids)
+            batch_question_attn_mask.append(q_attn_mask)
+        batch_question_tensors = torch.tensor(batch_question_tensors)
+        batch_question_attn_mask = torch.tensor(batch_question_attn_mask)
 
         max_batch_context_len = 0
         batch_positive_context_ids = []
@@ -326,11 +336,78 @@ class PoshardDataIterator(object):
                 max_batch_context_len = len(positive_context_ids)
             batch_positive_context_ids.append(positive_context_ids)
         
+        batch_hardnegs_context_ids = []
         for hardneg_contexts in batch_hardneg_contexts:
             hardneg_contexts = [copy.copy(c) for c in hardneg_contexts]
             recursive_apply(hardneg_contexts, fn=lambda x: x.strip())
+            per_sample_hardnegs_context_ids = []
             for hardneg_context in hardneg_contexts:
-                hardneg_context_ids = []
+                hardneg_context_ids = self.tokenizer.encode(hardneg_context['title'],
+                    text_pair=hardneg_context['text'], add_special_tokens=True)
+                if len(hardneg_context_ids) > self.max_length:
+                    hardneg_context_ids = hardneg_context_ids[:self.max_length]
+                    hardneg_context_ids[-1] = self.tokenizer.sep_token_id
+                per_sample_hardnegs_context_ids.append(hardneg_context_ids)
+                if max_batch_context_len < len(hardneg_context_ids):
+                    max_batch_context_len = len(hardneg_context_ids)
+            batch_hardnegs_context_ids.append(per_sample_hardnegs_context_ids)
+        
+        batch_positive_context_tensors = []
+        batch_positive_context_attn_mask = []
+        for positive_context_ids in batch_positive_context_ids:
+            c_attn_mask = [1] * len(positive_context_ids)
+            padding_len = max_batch_context_len - len(positive_context_ids)
+            if padding_len > 0:
+                positive_context_ids += [self.tokenizer.pad_token_id] * padding_len
+                c_attn_mask += [0] * padding_len
+            batch_positive_context_tensors.append(positive_context_ids)
+            batch_positive_context_attn_mask.append(c_attn_mask)
+        batch_positive_context_tensors = torch.tensor(batch_positive_context_tensors)
+        batch_positive_context_attn_mask = torch.tensor(batch_positive_context_attn_mask)
+
+        batch_hardnegs_context_tensors = []
+        batch_hardnegs_context_attn_mask = []
+        for idx, hardnegs_context_ids in enumerate(batch_hardnegs_context_ids):
+            per_sample_hardneg_contexts_tensors = []
+            per_sample_hardneg_contexts_attn_mask = []
+            for hardneg_context_ids in hardnegs_context_ids:
+                c_attn_mask = [1] * len(hardneg_context_ids)
+                padding_len = max_batch_context_len - len(hardneg_context_ids)
+                if padding_len > 0:
+                    hardneg_context_ids += [self.tokenizer.pad_token_id] * padding_len
+                    c_attn_mask += [0] * padding_len
+                per_sample_hardneg_contexts_tensors.append(hardneg_context_ids)
+                per_sample_hardneg_contexts_attn_mask.append(c_attn_mask)
+            per_sample_hardneg_contexts_tensors = torch.tensor(per_sample_hardneg_contexts_tensors)
+            per_sample_hardneg_contexts_attn_mask = torch.tensor(per_sample_hardneg_contexts_attn_mask)
+            if hardneg_padding_lens[idx] > 0:
+                per_sample_hardneg_contexts_tensors = torch.cat(
+                    [per_sample_hardneg_contexts_tensors,
+                    torch.zeros(hardneg_padding_lens[idx], max_batch_context_len, dtype=torch.long)],
+                    dim=0
+                )
+                per_sample_hardneg_contexts_attn_mask = torch.cat(
+                    [per_sample_hardneg_contexts_attn_mask,
+                    torch.zeros(hardneg_padding_lens[idx], max_batch_context_len, dtype=torch.long)],
+                    dim=0
+                )
+            batch_hardnegs_context_tensors.append(per_sample_hardneg_contexts_tensors)
+            batch_hardnegs_context_attn_mask.append(per_sample_hardneg_contexts_attn_mask)
+        batch_hardnegs_context_tensors = torch.stack(batch_hardnegs_context_tensors, dim=0)
+        batch_hardnegs_context_attn_mask = torch.stack(batch_hardnegs_context_attn_mask, dim=0)
+
+        ids = torch.tensor([item['sample_id'] for item in items])
+        
+        return {
+            'question/input_ids': batch_question_tensors,
+            'question/attn_mask': batch_question_attn_mask,
+            'positive_context/input_ids': batch_positive_context_tensors,
+            'positive_context/attn_mask': batch_positive_context_attn_mask,
+            'hardneg_context/input_ids': batch_hardnegs_context_tensors,
+            'hardneg_context/attn_mask': batch_hardnegs_context_attn_mask,
+            'hardneg_mask': batch_hardneg_mask,
+            'ids': ids
+        }
 
 
 class HardDataIterator(object):
@@ -367,6 +444,9 @@ class HardDataIterator(object):
         if use_randneg_dataset:
             raise Exception("This code currently does not support the use of `use_randneg_dataset`. "
                 "This option is for future release.")
+    
+    def __iter__(self):
+        return self
 
     def __next__(self):
         batch, update = self.data_queue.get()

@@ -10,6 +10,7 @@ import collections
 import glob
 import logging
 import os
+import argparse
 from typing import List
 
 import torch
@@ -145,4 +146,4 @@ def load_states_from_checkpoint(model_file: str) -> CheckpointState:
                     torch.cuda.set_rng_state(cuda_states[device_id])
                 except Exception:
                     logger.info("Invalid RNG state restored from checkpoint file '{}'".format(model_file))
-    return CheckpointState(**state_dict)
+    return argparse.Namespace(**state_dict)
