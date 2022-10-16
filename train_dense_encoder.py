@@ -18,8 +18,11 @@ import glob
 import logging
 import math
 import os
+import sys
 import random
 import time
+import hydra
+from omegaconf import DictConfig, OmegaConf
 
 import torch
 import torch.distributed as dist
@@ -41,6 +44,7 @@ from dpr.utils.dist_utils import all_gather_list
 from dpr.utils.model_utils import setup_for_distributed_mode, move_to_device, get_schedule_linear, CheckpointState, \
     get_model_file, get_model_obj, load_states_from_checkpoint
 from srdpr.utils.logging_utils import add_color_formatter
+from srdpr.utils.helpers import dictconfig_to_namespace
 
 
 class RandContext:
@@ -746,56 +750,58 @@ def _do_biencoder_fwd_bwd_pass_cached(
         return loss, is_correct
 
 
-def main():
-    parser = argparse.ArgumentParser()
+@hydra.main(version_base=None, config_path="conf", config_name="config")
+def main(args: DictConfig):
+    # parser = argparse.ArgumentParser()
 
-    add_encoder_params(parser)
-    add_training_params(parser)
-    add_tokenizer_params(parser)
+    # add_encoder_params(parser)
+    # add_training_params(parser)
+    # add_tokenizer_params(parser)
 
-    # biencoder specific training features
-    parser.add_argument("--eval_per_epoch", default=1, type=int,
-                        help="How many times it evaluates on dev set per epoch and saves a checkpoint")
+    # # biencoder specific training features
+    # parser.add_argument("--eval_per_epoch", default=1, type=int,
+    #                     help="How many times it evaluates on dev set per epoch and saves a checkpoint")
 
-    parser.add_argument("--global_loss_buf_sz", type=int, default=150000,
-                        help='Buffer size for distributed mode representations al gather operation. \
-                                Increase this if you see errors like "encoded data exceeds max_size ..."')
+    # parser.add_argument("--global_loss_buf_sz", type=int, default=150000,
+    #                     help='Buffer size for distributed mode representations al gather operation. \
+    #                             Increase this if you see errors like "encoded data exceeds max_size ..."')
 
-    parser.add_argument("--fix_ctx_encoder", action='store_true')
-    parser.add_argument("--shuffle_positive_ctx", action='store_true')
+    # parser.add_argument("--fix_ctx_encoder", action='store_true')
+    # parser.add_argument("--shuffle_positive_ctx", action='store_true')
 
-    # input/output src params
-    parser.add_argument("--output_dir", default=None, type=str,
-                        help="The output directory where the model checkpoints will be written or resumed from")
+    # # input/output src params
+    # parser.add_argument("--output_dir", default=None, type=str,
+    #                     help="The output directory where the model checkpoints will be written or resumed from")
 
-    # data handling parameters
-    parser.add_argument("--hard_negatives", default=1, type=int,
-                        help="amount of hard negative ctx per question")
-    parser.add_argument("--other_negatives", default=0, type=int,
-                        help="amount of 'other' negative ctx per question")
-    parser.add_argument("--train_files_upsample_rates", type=str,
-                        help="list of up-sample rates per each train file. Example: [1,2,1]")
+    # # data handling parameters
+    # parser.add_argument("--hard_negatives", default=1, type=int,
+    #                     help="amount of hard negative ctx per question")
+    # parser.add_argument("--other_negatives", default=0, type=int,
+    #                     help="amount of 'other' negative ctx per question")
+    # parser.add_argument("--train_files_upsample_rates", type=str,
+    #                     help="list of up-sample rates per each train file. Example: [1,2,1]")
 
-    # parameters for Av.rank validation method
-    parser.add_argument("--val_av_rank_start_epoch", type=int, default=10000,
-                        help="Av.rank validation: the epoch from which to enable this validation")
-    parser.add_argument("--val_av_rank_hard_neg", type=int, default=30,
-                        help="Av.rank validation: how many hard negatives to take from each question pool")
-    parser.add_argument("--val_av_rank_other_neg", type=int, default=30,
-                        help="Av.rank validation: how many 'other' negatives to take from each question pool")
-    parser.add_argument("--val_av_rank_bsz", type=int, default=128,
-                        help="Av.rank validation: batch size to process passages")
-    parser.add_argument("--val_av_rank_max_qs", type=int, default=10000,
-                        help="Av.rank validation: max num of questions")
-    parser.add_argument('--checkpoint_file_name', type=str, default='dpr_biencoder', help="Checkpoints file prefix")
+    # # parameters for Av.rank validation method
+    # parser.add_argument("--val_av_rank_start_epoch", type=int, default=10000,
+    #                     help="Av.rank validation: the epoch from which to enable this validation")
+    # parser.add_argument("--val_av_rank_hard_neg", type=int, default=30,
+    #                     help="Av.rank validation: how many hard negatives to take from each question pool")
+    # parser.add_argument("--val_av_rank_other_neg", type=int, default=30,
+    #                     help="Av.rank validation: how many 'other' negatives to take from each question pool")
+    # parser.add_argument("--val_av_rank_bsz", type=int, default=128,
+    #                     help="Av.rank validation: batch size to process passages")
+    # parser.add_argument("--val_av_rank_max_qs", type=int, default=10000,
+    #                     help="Av.rank validation: max num of questions")
+    # parser.add_argument('--checkpoint_file_name', type=str, default='dpr_biencoder', help="Checkpoints file prefix")
 
-    args = parser.parse_args()
+    # args = parser.parse_args()
 
     logging.basicConfig(level=logging.INFO)
     add_color_formatter(logging.root)
-
     global logger
     logger = logging.getLogger(__name__)
+
+    args = dictconfig_to_namespace(args)
 
     if args.gradient_accumulation_steps < 1:
         raise ValueError("Invalid gradient_accumulation_steps parameter: {}, should be >= 1".format(

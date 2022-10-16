@@ -1,3 +1,9 @@
+import copy
+import argparse
+from omegaconf import DictConfig
+from typing import Union, Any
+
+
 def recursive_apply(data, fn):
     stack = [(None, -1, data)]  # parent, idx, child: parent[idx] = child
     while stack:
@@ -15,3 +21,15 @@ def recursive_apply(data, fn):
         else:
             continue
     return data
+
+
+def dictconfig_to_namespace(cfg: Union[DictConfig, Any]):
+    if not isinstance(cfg, DictConfig):
+        return copy.deepcopy(cfg)
+
+    args = argparse.Namespace()
+    for attr_name in dir(cfg):
+        attr = getattr(cfg, attr_name)
+        setattr(args, attr_name, dictconfig_to_namespace(attr))
+
+    return args
