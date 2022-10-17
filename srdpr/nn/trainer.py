@@ -29,12 +29,16 @@ class SRBiEncoderTrainer(object):
         optimizer,
         scheduler,
         iterators,
+        trained_steps: int,
     ):
         self.cfg = cfg
         self.biencoder = biencoder
         self.optimizer = optimizer
         self.scheduler = scheduler
         self.iterators = iterators
+        for iterator in iterators.values():
+            iterator.start_worker()
+        self.trained_steps = trained_steps
         self.loss_calculator = LossCalculator()
         self.scaler = GradScaler() if cfg.fp16 else None
         self._setup_pipeline()
@@ -69,26 +73,25 @@ class SRBiEncoderTrainer(object):
         self._available_pipelines = available_pipelines
         self._index_boundaries = [sum(num_continuous_steps[:idx])
                                   for idx in range(len(num_continuous_steps) + 1)]
-        self._cycle_walk = regulate_factor + \
-            sum(poshard_and_hard_num_continuous_steps)
+        self._cycle_walk = sum(num_continuous_steps)
     
     def _save_checkpoint(self, step, rng_states):
         cfg = self.cfg
         model_to_save = get_model_obj(self.biencoder)
         cp = os.path.join(cfg.output_dir,
-                          cfg.checkpoint_file_name + '.' + str(step))
+                          cfg.checkpoint_file_name + '.' + str(step + 1))
 
         meta_params = get_encoder_params_state(cfg)
 
-        state = CheckpointState(model_to_save.state_dict(),
-                                    self.optimizer.state_dict(),
-                                    self.scheduler.state_dict(),
-                                    step + 1, meta_params)
+        pipeline_dict = {k: v.get_idxs_generator_state()
+            for k, v in self.iterators.items()}
         state = {
             'model_dict': model_to_save.state_dict(),
             'optimizer_dict': self.optimizer.state_dict(),
             'scheduler_dict': self.scheduler.state_dict(),
+            'pipeline_dict': pipeline_dict,
             'encoder_params': meta_params,
+            'step': step + 1,
             **rng_states
         }
         torch.save(state, cp)
@@ -131,13 +134,17 @@ class SRBiEncoderTrainer(object):
             #     logger.info('New Best validation checkpoint %s', cp_name)
 
     def run_train(self):
-        for step in range(self.cfg.total_updates):
+        if self.trained_steps > 0:
+            logger.info("Model has been updated for {} steps.".format(self.trained_steps))
+        self.biencoder.train()
+        for step in range(self.trained_steps, self.cfg.total_updates):
             per_step_loss = self.train_step(step)
             if (step + 1) % self.cfg.log_batch_step == 0:
                 logger.info("Step: {}/{} :: Loss = {}".format(step + 1, self.cfg.total_updates,
                     per_step_loss))
             if (step + 1) % self.cfg.save_checkpoint_freq == 0:
                 self.validate_and_save(step)
+                self.biencoder.train()
     
     def train_step(self, step):
         pipeline = self.get_pipeline_for_step(step)

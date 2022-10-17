@@ -26,6 +26,7 @@ class ByteDataset(Dataset):
         idx_record_size: int,
         transform=None
     ):
+        self.data_path = data_path
         self.idx_reader = open(os.path.join(data_path, "idxs.pkl"), "rb")
         self.data_reader = open(os.path.join(data_path, "data.pkl"), "rb")
         self.idx_record_size = idx_record_size
@@ -45,7 +46,10 @@ class ByteDataset(Dataset):
 
         # get record
         self.data_reader.seek(position, 0)
-        record = pickle.load(self.data_reader)
+        try:
+            record = pickle.load(self.data_reader)
+        except Exception as e:
+            print("Idx: {} - Position: {}".format(idx, position))
 
         # transform
         if self.transform:

@@ -69,6 +69,7 @@ def main(cfg: DictConfig):
         )
 
     scheduler = get_schedule_linear(optimizer, cfg.warmup_steps, cfg.total_updates)
+    trained_steps = 0
     if saved_state is not None:
         # Load saved state
         model_to_load = get_model_obj(biencoder)
@@ -91,7 +92,7 @@ def main(cfg: DictConfig):
                 steps_shift=shift
             )
         
-        if saved_state.pipeline_dict:
+        if saved_state.pipeline_dict: 
             pipeline_state = saved_state.pipeline_dict
             for pipeline in pipelines_to_build:
                 specific_pipeline_state = pipeline_state.get(pipeline)
@@ -100,15 +101,20 @@ def main(cfg: DictConfig):
                 else:
                     epoch = specific_pipeline_state['epoch']
                     iteration = specific_pipeline_state['iteration']
-                    iterators[pipeline].idxs_generator.set_epoch(epoch)
-                    iterators[pipeline].idxs_generator.set_iteration(iteration)
+                    if pipeline in {'pos', 'hard'}:
+                        iteration = iteration - specific_pipeline_state['shift_back']
+                    iterators[pipeline].set_idxs_generator_state(epoch, iteration)
+        
+        if saved_state.step:
+            trained_steps = saved_state.step
 
     trainer = SRBiEncoderTrainer(
         cfg=cfg,
         biencoder=biencoder,
         optimizer=optimizer,
         scheduler=scheduler,
-        iterators=iterators
+        iterators=iterators,
+        trained_steps=trained_steps
     )
 
     trainer.run_train()

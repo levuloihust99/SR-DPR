@@ -220,9 +220,18 @@ class PoshardDataIterator(object):
         self.shuffle = shuffle
         self.max_length = max_length
         self.data_queue = mp.Queue(maxsize=prefetch_factor)
-        self.feeding_worker = mp.Process(target=self.feeding, args=(self.data_queue, dataset,
+        self.feeding_worker = mp.Process(target=self.feeding, args=(self.data_queue, dataset.data_path,
             idxs_generator, forward_batch_size, self.collate_fn))
+    
+    def start_worker(self):
         self.feeding_worker.start()
+    
+    def get_idxs_generator_state(self):
+        return {'epoch': self.idxs_generator.epoch, 'iteration': self.idxs_generator.iteration}
+    
+    def set_idxs_generator_state(self, epoch, iteration):
+        self.idxs_generator.set_epoch(epoch)
+        self.idxs_generator.set_iteration(iteration)
 
     def __iter__(self):
         return self
@@ -236,12 +245,13 @@ class PoshardDataIterator(object):
     @staticmethod
     def feeding(
         data_queue,
-        dataset,
+        data_path,
         idxs_generator,
         forward_batch_size,
         collate_fn
     ):
         idxs_iterator = iter(idxs_generator)
+        dataset = ByteDataset(data_path=data_path, idx_record_size=6)
         while True:
             idxs = [next(idxs_iterator) for _ in range(forward_batch_size)]
             items = [dataset[idx] for idx in idxs]
@@ -434,17 +444,28 @@ class HardDataIterator(object):
         self.shuffle = shuffle
         self.max_length = max_length
         self.use_randneg_dataset = use_randneg_dataset
+        self.state = {'shift_back': 0}
         
         self.data_queue = mp.Queue(maxsize=prefetch_factor)
         self.feeding_worker = mp.Process(target=self.feeding, 
-            args=(self.data_queue, hardneg_dataset, hardneg_idxs_generator, self.collate_fn, forward_batch_size,
+            args=(self.data_queue, hardneg_dataset.data_path, hardneg_idxs_generator, self.collate_fn, forward_batch_size,
                 contrastive_size, randneg_dataset, randneg_idxs_generator, use_randneg_dataset),
             daemon=True)
-        self.feeding_worker.start()
 
         if use_randneg_dataset:
             raise Exception("This code currently does not support the use of `use_randneg_dataset`. "
                 "This option is for future release.")
+    
+    def start_worker(self):
+        self.feeding_worker.start()
+    
+    def get_idxs_generator_state(self):
+        return {'epoch': self.hardneg_idxs_generator.epoch, 'iteration': self.hardneg_idxs_generator.iteration,
+            'shift_back': self.state['shift_back']}
+    
+    def set_idxs_generator_state(self, epoch, iteration):
+        self.hardneg_idxs_generator.set_epoch(epoch)
+        self.hardneg_idxs_generator.set_iteration(iteration)
     
     def __iter__(self):
         return self
@@ -453,12 +474,13 @@ class HardDataIterator(object):
         batch, update = self.data_queue.get()
         self.hardneg_idxs_generator.set_epoch(update['hardneg']['epoch'])
         self.hardneg_idxs_generator.set_iteration(update['hardneg']['iteration'])
+        self.state['shift_back'] = update['hardneg']['shift_back']
         return batch
 
     @staticmethod
     def feeding(
         data_queue,
-        hardneg_dataset,
+        hardneg_dataset_path,
         hardneg_idxs_generator,
         collate_fn,
         forward_batch_size,
@@ -467,6 +489,7 @@ class HardDataIterator(object):
         randneg_idxs_generator,
         use_randneg_dataset
     ):
+        hardneg_dataset = ByteDataset(data_path=hardneg_dataset_path, idx_record_size=6)
         if not use_randneg_dataset:
             hardneg_idxs_iterator = iter(hardneg_idxs_generator)
             buffer = deque(maxlen=forward_batch_size + contrastive_size)
@@ -491,7 +514,8 @@ class HardDataIterator(object):
                     random.seed(hardneg_idxs_generator.shuffle_seed + hardneg_idxs_generator.epoch
                         + hardneg_idxs_generator.iteration)
                     items = collate_fn(items)
-                data_queue.put((items, {'hardneg': {'epoch': hardneg_idxs_generator.epoch, 'iteration': hardneg_idxs_generator.iteration}}))
+                data_queue.put((items, {'hardneg': {'epoch': hardneg_idxs_generator.epoch, 'iteration': hardneg_idxs_generator.iteration,
+                    'shift_back': len(buffer)}}))
         else:
             raise Exception("This code currently does not support the use of `use_randneg_dataset`. "
                 "This option is for future release.")
