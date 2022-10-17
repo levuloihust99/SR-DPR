@@ -79,6 +79,8 @@ class SRBiEncoderTrainer(object):
     def _save_checkpoint(self, step, rng_states):
         cfg = self.cfg
         model_to_save = get_model_obj(self.biencoder)
+        if not tf.io.gfile.exists(cfg.output_dir):
+            tf.io.gfile.makedirs(cfg.output_dir)
         cp = os.path.join(cfg.output_dir,
                           cfg.checkpoint_file_name + '.' + str(step + 1))
         all_cp_files = tf.io.gfile.listdir(cfg.output_dir)
