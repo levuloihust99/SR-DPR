@@ -1,6 +1,7 @@
 import os
 import torch
 import logging
+import tensorflow as tf
 
 from typing import Dict, Text
 from torch.cuda.amp import GradScaler, autocast
@@ -94,7 +95,8 @@ class SRBiEncoderTrainer(object):
             'step': step + 1,
             **rng_states
         }
-        torch.save(state, cp)
+        with tf.io.gfile.GFile(cp, "wb") as writer:
+            torch.save(state, writer)
         logger.info('Saved checkpoint at %s', cp)
         return cp
     
