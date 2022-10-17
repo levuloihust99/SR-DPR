@@ -12,6 +12,7 @@ import logging
 import os
 import argparse
 from typing import List
+import tensorflow as tf
 
 import torch
 from torch import nn
@@ -117,21 +118,24 @@ def get_model_obj(model: nn.Module):
 
 
 def get_model_file(args, file_prefix) -> str:
-    if args.model_file and os.path.exists(args.model_file):
+    if args.model_file and tf.io.gfile.exists(args.model_file):
         return args.model_file
 
-    out_cp_files = glob.glob(os.path.join(args.output_dir, file_prefix + '*')) if args.output_dir else []
+    out_cp_files = tf.io.gfile.glob(os.path.join(args.output_dir, file_prefix + '*')) if args.output_dir else []
+    # out_cp_files = glob.glob(os.path.join(args.output_dir, file_prefix + '*')) if args.output_dir else []
     logger.info('Checkpoint files %s', out_cp_files)
     model_file = None
 
     if len(out_cp_files) > 0:
-        model_file = max(out_cp_files, key=os.path.getctime)
+        # model_file = max(out_cp_files, key=os.path.getctime)
+        model_file = max(out_cp_files, key=lambda x: tf.io.gfile.stat(x).mtime_nsec)
     return model_file
 
 
 def load_states_from_checkpoint(model_file: str) -> CheckpointState:
     logger.info('Reading saved model from %s', model_file)
-    state_dict = torch.load(model_file, map_location=lambda s, l: default_restore_location(s, 'cpu'))
+    with tf.io.gfile.GFile(model_file, "rb") as reader:
+        state_dict = torch.load(reader, map_location=lambda s, l: default_restore_location(s, 'cpu'))
     logger.info('model_state_dict keys %s', state_dict.keys())
     # restore RNG
     cpu_state = state_dict.pop('cpu_state', None)
