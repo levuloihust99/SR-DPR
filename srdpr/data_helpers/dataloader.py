@@ -221,7 +221,7 @@ class PoshardDataIterator(object):
         self.max_length = max_length
         self.data_queue = mp.Queue(maxsize=prefetch_factor)
         self.feeding_worker = mp.Process(target=self.feeding, args=(self.data_queue, dataset.data_path,
-            idxs_generator, forward_batch_size, self.collate_fn))
+            idxs_generator, forward_batch_size, self.collate_fn), daemon=True)
     
     def start_worker(self):
         self.feeding_worker.start()

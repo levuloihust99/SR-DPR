@@ -194,13 +194,13 @@ class SRBiEncoderTrainer(object):
             return self.pos_hardneg_computation
     
     def pos_randneg_computation(self, batch: Dict[Text, torch.Tensor], gradient_accumulate_steps: int):
-        question_input_ids = batch['question/input_ids']
-        question_attn_mask = batch['question/attn_mask']
-        positive_context_input_ids = batch['positive_context/input_ids']
-        positive_context_attn_mask = batch['positive_context/attn_mask']
-        negative_context_input_ids = batch['negative_context/input_ids']
-        negative_context_attn_mask = batch['negative_context/attn_mask']
-        duplicate_mask = batch['duplicate_mask']
+        question_input_ids = batch['question/input_ids'].to(self.cfg.device)
+        question_attn_mask = batch['question/attn_mask'].to(self.cfg.device)
+        positive_context_input_ids = batch['positive_context/input_ids'].to(self.cfg.device)
+        positive_context_attn_mask = batch['positive_context/attn_mask'].to(self.cfg.device)
+        negative_context_input_ids = batch['negative_context/input_ids'].to(self.cfg.device)
+        negative_context_attn_mask = batch['negative_context/attn_mask'].to(self.cfg.device)
+        duplicate_mask = batch['duplicate_mask'].to(self.cfg.device)
 
         if self.cfg.grad_cache:
             return self._pos_randneg_computation_grad_cache(question_input_ids, question_attn_mask,
@@ -438,13 +438,13 @@ class SRBiEncoderTrainer(object):
         return loss.item()
 
     def pos_hardneg_computation(self, batch: Dict[Text, torch.Tensor], gradient_accumulate_steps):
-        question_input_ids = batch['question/input_ids']
-        question_attn_mask = batch['question/attn_mask']
-        positive_context_input_ids = batch['positive_context/input_ids']
-        positive_context_attn_mask = batch['positive_context/attn_mask']
-        hardneg_context_input_ids = batch['hardneg_context/input_ids']
-        hardneg_context_attn_mask = batch['hardneg_context/attn_mask']
-        hardneg_mask = batch['hardneg_mask']
+        question_input_ids = batch['question/input_ids'].to(self.cfg.device)
+        question_attn_mask = batch['question/attn_mask'].to(self.cfg.device)
+        positive_context_input_ids = batch['positive_context/input_ids'].to(self.cfg.device)
+        positive_context_attn_mask = batch['positive_context/attn_mask'].to(self.cfg.device)
+        hardneg_context_input_ids = batch['hardneg_context/input_ids'].to(self.cfg.device)
+        hardneg_context_attn_mask = batch['hardneg_context/attn_mask'].to(self.cfg.device)
+        hardneg_mask = batch['hardneg_mask'].to(self.cfg.device)
 
         if self.cfg.grad_cache:
             return self._pos_hardneg_computation_grad_cache(question_input_ids, question_attn_mask,
