@@ -81,6 +81,13 @@ class SRBiEncoderTrainer(object):
         model_to_save = get_model_obj(self.biencoder)
         cp = os.path.join(cfg.output_dir,
                           cfg.checkpoint_file_name + '.' + str(step + 1))
+        all_cp_files = tf.io.gfile.listdir(cfg.output_dir)
+        all_cp_files = [os.path.join(cfg.output_dir, f) for f in all_cp_files]
+        all_cp_files = sorted(all_cp_files, key=lambda x: tf.io.gfile.stat(x).mtime_nsec, reverse=True)
+        if cfg.keep_checkpoint_max > 0:
+            files_to_delete = all_cp_files[cfg.keep_checkpoint_max - 1:]
+            for f in files_to_delete:
+                tf.io.gfile.remove(f)
 
         meta_params = get_encoder_params_state(cfg)
 

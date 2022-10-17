@@ -21,8 +21,7 @@ import os
 import sys
 import random
 import time
-import hydra
-from omegaconf import DictConfig, OmegaConf
+import tensorflow as tf
 
 import torch
 import torch.distributed as dist
@@ -467,6 +466,13 @@ class BiEncoderTrainer(object):
         model_to_save = get_model_obj(self.biencoder)
         cp = os.path.join(args.output_dir,
                           args.checkpoint_file_name + '.' + str(epoch) + ('.' + str(offset) if offset > 0 else ''))
+        all_cp_files = tf.io.gfile.listdir(args.output_dir)
+        all_cp_files = [os.path.join(args.output_dir, f) for f in all_cp_files]
+        all_cp_files = sorted(all_cp_files, key=lambda x: tf.io.gfile.stat(x).mtime_nsec, reverse=True)
+        if args.keep_checkpoint_max > 0:
+            files_to_delete = all_cp_files[args.keep_checkpoint_max - 1:]
+            for f in files_to_delete:
+                tf.io.gfile.remove(f)
 
         meta_params = get_encoder_params_state(args)
 
@@ -478,7 +484,9 @@ class BiEncoderTrainer(object):
                                 )
         # torch.save(state._asdict(), cp)
         state_to_save = {**state._asdict(), **rng_states}
-        torch.save(state_to_save, cp)
+        with tf.io.gfile.GFile(cp, "wb") as writer:
+            torch.save(state_to_save, writer)
+        # torch.save(state_to_save, cp)
         logger.info('Saved checkpoint at %s', cp)
         return cp
 
@@ -750,58 +758,57 @@ def _do_biencoder_fwd_bwd_pass_cached(
         return loss, is_correct
 
 
-@hydra.main(version_base=None, config_path="conf", config_name="config")
-def main(args: DictConfig):
-    # parser = argparse.ArgumentParser()
+def main():
+    parser = argparse.ArgumentParser()
 
-    # add_encoder_params(parser)
-    # add_training_params(parser)
-    # add_tokenizer_params(parser)
+    add_encoder_params(parser)
+    add_training_params(parser)
+    add_tokenizer_params(parser)
 
-    # # biencoder specific training features
-    # parser.add_argument("--eval_per_epoch", default=1, type=int,
-    #                     help="How many times it evaluates on dev set per epoch and saves a checkpoint")
+    # biencoder specific training features
+    parser.add_argument("--eval_per_epoch", default=1, type=int,
+                        help="How many times it evaluates on dev set per epoch and saves a checkpoint")
 
-    # parser.add_argument("--global_loss_buf_sz", type=int, default=150000,
-    #                     help='Buffer size for distributed mode representations al gather operation. \
-    #                             Increase this if you see errors like "encoded data exceeds max_size ..."')
+    parser.add_argument("--global_loss_buf_sz", type=int, default=150000,
+                        help='Buffer size for distributed mode representations al gather operation. \
+                                Increase this if you see errors like "encoded data exceeds max_size ..."')
 
-    # parser.add_argument("--fix_ctx_encoder", action='store_true')
-    # parser.add_argument("--shuffle_positive_ctx", action='store_true')
+    parser.add_argument("--fix_ctx_encoder", action='store_true')
+    parser.add_argument("--shuffle_positive_ctx", action='store_true')
 
-    # # input/output src params
-    # parser.add_argument("--output_dir", default=None, type=str,
-    #                     help="The output directory where the model checkpoints will be written or resumed from")
+    # input/output src params
+    parser.add_argument("--output_dir", default=None, type=str,
+                        help="The output directory where the model checkpoints will be written or resumed from")
+    parser.add_argument("--keep_checkpoint_max", type=int, default=5,
+                        help="Maximum number of checkpoint files to keep.")
 
-    # # data handling parameters
-    # parser.add_argument("--hard_negatives", default=1, type=int,
-    #                     help="amount of hard negative ctx per question")
-    # parser.add_argument("--other_negatives", default=0, type=int,
-    #                     help="amount of 'other' negative ctx per question")
-    # parser.add_argument("--train_files_upsample_rates", type=str,
-    #                     help="list of up-sample rates per each train file. Example: [1,2,1]")
+    # data handling parameters
+    parser.add_argument("--hard_negatives", default=1, type=int,
+                        help="amount of hard negative ctx per question")
+    parser.add_argument("--other_negatives", default=0, type=int,
+                        help="amount of 'other' negative ctx per question")
+    parser.add_argument("--train_files_upsample_rates", type=str,
+                        help="list of up-sample rates per each train file. Example: [1,2,1]")
 
-    # # parameters for Av.rank validation method
-    # parser.add_argument("--val_av_rank_start_epoch", type=int, default=10000,
-    #                     help="Av.rank validation: the epoch from which to enable this validation")
-    # parser.add_argument("--val_av_rank_hard_neg", type=int, default=30,
-    #                     help="Av.rank validation: how many hard negatives to take from each question pool")
-    # parser.add_argument("--val_av_rank_other_neg", type=int, default=30,
-    #                     help="Av.rank validation: how many 'other' negatives to take from each question pool")
-    # parser.add_argument("--val_av_rank_bsz", type=int, default=128,
-    #                     help="Av.rank validation: batch size to process passages")
-    # parser.add_argument("--val_av_rank_max_qs", type=int, default=10000,
-    #                     help="Av.rank validation: max num of questions")
-    # parser.add_argument('--checkpoint_file_name', type=str, default='dpr_biencoder', help="Checkpoints file prefix")
+    # parameters for Av.rank validation method
+    parser.add_argument("--val_av_rank_start_epoch", type=int, default=10000,
+                        help="Av.rank validation: the epoch from which to enable this validation")
+    parser.add_argument("--val_av_rank_hard_neg", type=int, default=30,
+                        help="Av.rank validation: how many hard negatives to take from each question pool")
+    parser.add_argument("--val_av_rank_other_neg", type=int, default=30,
+                        help="Av.rank validation: how many 'other' negatives to take from each question pool")
+    parser.add_argument("--val_av_rank_bsz", type=int, default=128,
+                        help="Av.rank validation: batch size to process passages")
+    parser.add_argument("--val_av_rank_max_qs", type=int, default=10000,
+                        help="Av.rank validation: max num of questions")
+    parser.add_argument('--checkpoint_file_name', type=str, default='dpr_biencoder', help="Checkpoints file prefix")
 
-    # args = parser.parse_args()
+    args = parser.parse_args()
 
     logging.basicConfig(level=logging.INFO)
     add_color_formatter(logging.root)
     global logger
     logger = logging.getLogger(__name__)
-
-    args = dictconfig_to_namespace(args)
 
     if args.gradient_accumulation_steps < 1:
         raise ValueError("Invalid gradient_accumulation_steps parameter: {}, should be >= 1".format(
