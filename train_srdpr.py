@@ -58,6 +58,7 @@ def main(cfg: DictConfig):
             tokenizer=tensorizer.tokenizer,
             forward_batch_size=getattr(cfg.pipeline, POSHARD_PIPELINE_NAME).forward_batch_size,
             contrastive_size=getattr(cfg.pipeline, POSHARD_PIPELINE_NAME).contrastive_size,
+            max_length=cfg.max_length
         )
     if HARD_PIPELINE_NAME in pipelines_to_build:
         iterators[HARD_PIPELINE_NAME] = HardDataIterator(
@@ -65,7 +66,8 @@ def main(cfg: DictConfig):
             hardneg_idxs_generator=StatelessIdxsGenerator(len(dataset), shuffle_seed=cfg.seed + HARD_SEED),
             tokenizer=tensorizer.tokenizer,
             forward_batch_size=getattr(cfg.pipeline, HARD_PIPELINE_NAME).forward_batch_size,
-            contrastive_size=getattr(cfg.pipeline, HARD_PIPELINE_NAME).contrastive_size
+            contrastive_size=getattr(cfg.pipeline, HARD_PIPELINE_NAME).contrastive_size,
+            max_length=cfg.max_length
         )
 
     scheduler = get_schedule_linear(optimizer, cfg.warmup_steps, cfg.total_updates)
