@@ -21,7 +21,7 @@ import os
 import sys
 import random
 import time
-import tensorflow as tf
+# import tensorflow as tf
 
 import torch
 import torch.distributed as dist
@@ -185,6 +185,8 @@ class BiEncoderTrainer(object):
         logger.info("  Eval step = %d", eval_step)
         logger.info("***** Training *****")
 
+        global tf
+        import tensorflow as tf
         for epoch in range(self.start_epoch, int(args.num_train_epochs)):
             logger.info("***** Epoch %d *****", epoch)
             self._train_epoch(scheduler, epoch, eval_step, train_iterable)
