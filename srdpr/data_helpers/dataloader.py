@@ -9,6 +9,7 @@ from typing import Optional
 from dpr.utils.data_utils import normalize_question
 from srdpr.data_helpers.datasets import ByteDataset
 from srdpr.utils.helpers import recursive_apply
+from transformers import BertTokenizer
 
 
 class StatelessIdxsGenerator(object):
@@ -616,4 +617,226 @@ class HardDataIterator(object):
         duplicate_mask = duplicate_mask.to(torch.int64)
         duplicate_mask = torch.cat([torch.ones(self.forward_batch_size, 1, dtype=torch.int64), duplicate_mask], dim=1)
         batch['duplicate_mask'] = duplicate_mask
+        return batch
+
+
+class InbatchDataIterator(object):
+    def __init__(
+        self,
+        dataset: ByteDataset,
+        idxs_generator: StatelessIdxsGenerator,
+        tokenizer,
+        forward_batch_size: int,
+        use_hardneg: bool = True,
+        use_num_hardnegs: int = 1,
+        max_length: int = 512,
+        shuffle_positive: bool = False,
+        shuffle: bool = True,
+        prefetch_factor: int = 10
+    ):
+        self.dataset = dataset
+        self.idxs_generator = idxs_generator
+        self.tokenizer = tokenizer
+        self.forward_batch_size = forward_batch_size
+        self.use_hardneg = use_hardneg
+        self.use_num_hardnegs = use_num_hardnegs
+        self.max_length = max_length
+        self.shuffle_positive = shuffle_positive
+        self.shuffle = shuffle
+        self.data_queue = mp.Queue(maxsize=prefetch_factor)
+        self.feeding_worker = mp.Process(target=self.feeding,
+            args=(self.data_queue, dataset.data_path, self.idxs_generator,
+                self.collate_fn, self.forward_batch_size), daemon=True)
+
+    def start_worker(self):
+        self.feeding_worker.start()
+    
+    def get_idxs_generator_state(self):
+        return {'epoch': self.idxs_generator.epoch, 'iteration': self.idxs_generator.iteration}
+    
+    def set_idxs_generator_state(self, epoch, iteration):
+        self.idxs_generator.set_epoch(epoch)
+        self.idxs_generator.set_iteration(iteration)
+
+    def __iter__(self):
+        return self
+
+    def __next__(self):
+        batch, update = self.data_queue.get()
+        self.idxs_generator.set_epoch(update['epoch'])
+        self.idxs_generator.set_iteration(update['iteration'])
+        return batch
+
+    def __next__(self):
+        batch, update = self.data_queue.get()
+        self.idxs_generator.set_epoch(update['epoch'])
+        self.idxs_generator.set_iteration(update['iteration'])
+        return batch
+    
+    @staticmethod
+    def feeding(
+        data_queue,
+        data_path,
+        idxs_generator: StatelessIdxsGenerator,
+        collate_fn,
+        forward_batch_size,
+    ):
+        dataset = ByteDataset(data_path=data_path, idx_record_size=6)
+        idxs_iterator = iter(idxs_generator)
+        while True:
+            idxs = [next(idxs_iterator) for _ in range(forward_batch_size)]
+            items = [dataset[idx] for idx in idxs]
+            if collate_fn:
+                random.seed(idxs_generator.shuffle_seed + idxs_generator.epoch + idxs_generator.iteration)
+                items = collate_fn(items)
+            data_queue.put((items, {'epoch': idxs_generator.epoch, 'iteration': idxs_generator.iteration}))
+
+    def collate_fn(self, items):
+        batch_question_ids = []
+        batch_positive_context_ids = []
+        batch_hardneg_contexts = []
+
+        max_batch_question_len = 0
+        max_batch_context_len = 0
+        dynamic_hardneg_num = 0
+
+        for item in items:
+            questions = copy.copy(item['questions'])
+            random.shuffle(questions)
+            question = questions[0]
+            question = normalize_question(question)
+            question = question.strip()
+            question_ids = self.tokenizer.encode(question, add_special_tokens=True)
+            if len(question_ids) > self.max_length:
+                question_ids = question_ids[:self.max_length]
+                question_ids[-1] = self.tokenizer.sep_token_id
+            if max_batch_question_len < len(question_ids):
+                max_batch_question_len = len(question_ids)
+            batch_question_ids.append(question_ids)
+
+            positive_contexts = copy.copy(item['positive_contexts'])
+            if self.shuffle_positive:
+                random.shuffle(positive_contexts)
+            positive_context = copy.copy(positive_contexts[0])
+            recursive_apply(positive_context, lambda x: x.strip())
+            positive_context_ids = self.tokenizer.encode(positive_context['title'],
+                text_pair=positive_context['text'], add_special_tokens=True)
+            if len(positive_context_ids) > self.max_length:
+                positive_context_ids = positive_context_ids[:self.max_length]
+                positive_context_ids[-1] = self.tokenizer.sep_token_id
+            if max_batch_context_len < len(positive_context_ids):
+                max_batch_context_len = len(positive_context_ids)
+            batch_positive_context_ids.append(positive_context_ids)
+            
+            hardneg_contexts = copy.copy(item['hardneg_contexts'])
+            if self.shuffle:
+                random.shuffle(hardneg_contexts)
+            hardneg_contexts = hardneg_contexts[:self.use_num_hardnegs]
+            if dynamic_hardneg_num < len(hardneg_contexts):
+                dynamic_hardneg_num = len(hardneg_contexts)
+            batch_hardneg_contexts.append(hardneg_contexts)
+        
+        batch_hardneg_context_ids = []
+        batch_hardneg_mask = []
+        hardneg_padding_nums = []
+        for hardneg_contexts in batch_hardneg_contexts:
+            hardneg_contexts = hardneg_contexts[:dynamic_hardneg_num]
+            padding_len = dynamic_hardneg_num - len(hardneg_contexts)
+            hardneg_padding_nums.append(padding_len)
+            hardneg_mask = [1] * len(hardneg_contexts) + [0] * padding_len
+            batch_hardneg_mask.append(hardneg_mask)
+            per_sample_hardneg_context_ids = []
+            for hardneg_context in hardneg_contexts:
+                hardneg_context = copy.copy(hardneg_context)
+                recursive_apply(hardneg_context, lambda x: x.strip())
+                hardneg_context_ids = self.tokenizer.encode(hardneg_context['title'], 
+                    text_pair=hardneg_context['text'], add_special_tokens=True)
+                if len(hardneg_context_ids) > self.max_length:
+                    hardneg_context_ids = hardneg_context_ids[:self.max_length]
+                    hardneg_context_ids[-1] = self.tokenizer.sep_token_id
+                if max_batch_context_len < len(hardneg_context_ids):
+                    max_batch_context_len = len(hardneg_context_ids)
+                per_sample_hardneg_context_ids.append(hardneg_context_ids)
+            batch_hardneg_context_ids.append(per_sample_hardneg_context_ids)
+        batch_hardneg_mask = torch.tensor(batch_hardneg_mask)
+        
+        batch_question_input_ids = []
+        batch_question_attn_mask = []
+        for question_ids in batch_question_ids:
+            q_attn_mask = [1] * len(question_ids)
+            padding_len = max_batch_question_len - len(question_ids)
+            if padding_len > 0:
+                question_ids += [self.tokenizer.pad_token_id] * padding_len
+                q_attn_mask += [0] * padding_len
+            batch_question_input_ids.append(question_ids)
+            batch_question_attn_mask.append(q_attn_mask)
+        batch_question_input_ids = torch.tensor(batch_question_input_ids)
+        batch_question_attn_mask = torch.tensor(batch_question_attn_mask)
+        
+        batch_positive_input_ids = []
+        batch_positive_attn_mask = []
+        for positive_context_ids in batch_positive_context_ids:
+            padding_len = max_batch_context_len - len(positive_context_ids)
+            c_attn_mask = [1] * len(positive_context_ids)
+            if padding_len > 0:
+                positive_context_ids += [self.tokenizer.pad_token_id] * padding_len
+                c_attn_mask += [0] * padding_len
+            batch_positive_input_ids.append(positive_context_ids)
+            batch_positive_attn_mask.append(c_attn_mask)
+        batch_positive_input_ids = torch.tensor(batch_positive_input_ids)
+        batch_positive_attn_mask = torch.tensor(batch_positive_attn_mask)
+        
+        batch_hardneg_input_ids = []
+        batch_hardneg_attn_mask = []
+        for idx, per_sample_hardneg_context_ids in enumerate(batch_hardneg_context_ids):
+            per_sample_hardneg_input_ids = []
+            per_sample_hardneg_attn_mask = []
+            for hardneg_context_ids in per_sample_hardneg_context_ids:
+                c_attn_mask = [1] * len(hardneg_context_ids)
+                padding_len = max_batch_context_len - len(hardneg_context_ids)
+                if padding_len > 0:
+                    hardneg_context_ids += [self.tokenizer.pad_token_id] * padding_len
+                    c_attn_mask += [0] * padding_len
+                per_sample_hardneg_input_ids.append(hardneg_context_ids)
+                per_sample_hardneg_attn_mask.append(c_attn_mask)
+            per_sample_hardneg_input_ids = torch.tensor(per_sample_hardneg_input_ids)
+            per_sample_hardneg_attn_mask = torch.tensor(per_sample_hardneg_attn_mask)
+            num_hardneg_pad = hardneg_padding_nums[idx]
+            if num_hardneg_pad > 0:
+                per_sample_hardneg_input_ids = torch.cat(
+                    [per_sample_hardneg_input_ids, 
+                    torch.zeros(num_hardneg_pad, max_batch_context_len, dtype=torch.long)],
+                    dim=0
+                )
+                per_sample_hardneg_attn_mask = torch.cat(
+                    [per_sample_hardneg_attn_mask,
+                    torch.zeros(num_hardneg_pad, max_batch_context_len, dtype=torch.long)]
+                )
+            batch_hardneg_input_ids.append(per_sample_hardneg_input_ids)
+            batch_hardneg_attn_mask.append(per_sample_hardneg_attn_mask)
+        batch_hardneg_input_ids = torch.stack(batch_hardneg_input_ids, dim=0)
+        batch_hardneg_attn_mask = torch.stack(batch_hardneg_attn_mask, dim=0)
+
+        ids = torch.tensor([item['sample_id'] for item in items])
+
+        batch_size = len(items)
+        ids_replicate_row = ids.unsqueeze(1).repeat(1, batch_size)
+        ids_replicate_col = ids.unsqueeze(0).repeat(batch_size, 1)
+        duplicate_mask = (ids_replicate_row == ids_replicate_col)
+        hardneg_mask_replicated = batch_hardneg_mask.view(1, -1).to(torch.bool).repeat(batch_size, 1)
+        mask = torch.cat([duplicate_mask, hardneg_mask_replicated], dim=1)
+
+        combine_context_input_ids = torch.cat([
+            batch_positive_input_ids, batch_hardneg_input_ids.view(-1, max_batch_context_len)], dim=0)
+        combine_context_attn_mask = torch.cat([batch_positive_attn_mask, 
+            batch_hardneg_attn_mask.view(-1, max_batch_context_len)], dim=0)
+
+        batch = {
+            'question/input_ids': batch_question_input_ids,
+            'question/attn_mask': batch_question_attn_mask,
+            'context/input_ids': combine_context_input_ids,
+            'context/attn_mask': combine_context_attn_mask,
+            'mask': mask,
+            'ids': ids
+        }
         return batch
