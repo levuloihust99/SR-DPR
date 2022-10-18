@@ -822,7 +822,7 @@ class InbatchDataIterator(object):
         batch_size = len(items)
         ids_replicate_row = ids.unsqueeze(1).repeat(1, batch_size)
         ids_replicate_col = ids.unsqueeze(0).repeat(batch_size, 1)
-        duplicate_mask = (ids_replicate_row == ids_replicate_col)
+        duplicate_mask = ~(ids_replicate_row == ids_replicate_col) | torch.eye(batch_size, dtype=torch.bool)
         hardneg_mask_replicated = batch_hardneg_mask.view(1, -1).to(torch.bool).repeat(batch_size, 1)
         mask = torch.cat([duplicate_mask, hardneg_mask_replicated], dim=1)
 
