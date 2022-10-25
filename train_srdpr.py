@@ -9,8 +9,8 @@ from dpr.models import init_biencoder_components
 
 from dpr.options import set_encoder_params_from_state, setup_args_gpu, set_seed, print_args
 from dpr.utils.model_utils import get_model_file, get_model_obj, get_schedule_linear, load_states_from_checkpoint, setup_for_distributed_mode
-from srdpr.constants import HARD_PIPELINE_NAME, HARD_SEED, INBATCH_PIPELINE_NAME, POSHARD_PIPELINE_NAME, POSHARD_SEED
-from srdpr.data_helpers.dataloader import HardDataIterator, PoshardDataIterator, StatelessIdxsGenerator
+from srdpr.constants import HARD_PIPELINE_NAME, HARD_SEED, INBATCH_PIPELINE_NAME, INBATCH_SEED, POSHARD_PIPELINE_NAME, POSHARD_SEED
+from srdpr.data_helpers.dataloader import HardDataIterator, InbatchDataIterator, PoshardDataIterator, StatelessIdxsGenerator
 from srdpr.data_helpers.datasets import ByteDataset
 from srdpr.utils.logging_utils import add_color_formatter
 from srdpr.utils.helpers import dictconfig_to_namespace
@@ -68,6 +68,16 @@ def main(cfg: DictConfig):
             forward_batch_size=getattr(cfg.pipeline, HARD_PIPELINE_NAME).forward_batch_size,
             contrastive_size=getattr(cfg.pipeline, HARD_PIPELINE_NAME).contrastive_size,
             max_length=cfg.max_length
+        )
+    if INBATCH_PIPELINE_NAME in pipelines_to_build:
+        iterators[INBATCH_PIPELINE_NAME] = InbatchDataIterator(
+            dataset=dataset,
+            idxs_generator=StatelessIdxsGenerator(len(dataset), shuffle_seed=cfg.seed + INBATCH_SEED),
+            tokenizer=tensorizer.tokenizer,
+            forward_batch_size=getattr(cfg.pipeline, INBATCH_PIPELINE_NAME).forward_batch_size,
+            use_hardneg=getattr(cfg.pipeline, INBATCH_PIPELINE_NAME).use_hardneg,
+            use_num_hardnegs=getattr(cfg.pipeline, INBATCH_PIPELINE_NAME).use_num_hardnegs,
+            max_length=cfg.max_length,
         )
 
     scheduler = get_schedule_linear(optimizer, cfg.warmup_steps, cfg.total_updates)

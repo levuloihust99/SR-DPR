@@ -696,29 +696,40 @@ class InbatchDataIterator(object):
         batch_positive_context_ids = []
         batch_hardneg_contexts = []
 
-        max_batch_question_len = 0
-        max_batch_context_len = 0
-        dynamic_hardneg_num = 0
+        max_batch_question_len = 0 # dynamic sequence length of question
+        max_batch_context_len = 0 # dynamic sequence length of contexts (both positive and hard negative)
+        dynamic_hardneg_num = 0 # dynamic number of hard negative contexts.
 
+        # this loop is to:
+        # 1. tokenize questions and get max_batch_question_len
+        # 2. tokenize positive contexts and get max_batch_context_len (not finally)
+        # 3. do not tokenize hard negative contexts at this loop since we do not know
+        # how many contexts to tokenize. This loop does sampling and determine dynamic
+        # number of hard negative contexts.
+        # By using shallow copy, items in dataset are preserved, necessary for perfectly resume training
         for item in items:
-            questions = copy.copy(item['questions'])
+            questions = copy.copy(item['questions']) # use shallow copy for shuffling not to
+                                                     # affect item['questions']
             random.shuffle(questions)
             question = questions[0]
-            question = normalize_question(question)
+            question = normalize_question(question) # remove question mark
             question = question.strip()
-            question_ids = self.tokenizer.encode(question, add_special_tokens=True)
-            if len(question_ids) > self.max_length:
+            question_ids = self.tokenizer.encode(question, add_special_tokens=True) # explicitly add
+                                                            # special tokens for guaranteeing version difference of transformers.
+            if len(question_ids) > self.max_length: # truncate inputs that exceed max_length
                 question_ids = question_ids[:self.max_length]
                 question_ids[-1] = self.tokenizer.sep_token_id
-            if max_batch_question_len < len(question_ids):
+            if max_batch_question_len < len(question_ids): # dynamic max sequence length for this batch
                 max_batch_question_len = len(question_ids)
-            batch_question_ids.append(question_ids)
+            batch_question_ids.append(question_ids) # 1. get batched tokenized questions.
 
-            positive_contexts = copy.copy(item['positive_contexts'])
+            positive_contexts = copy.copy(item['positive_contexts']) # use shallow copy for shuffling not to
+                                                                     # affect item['positive_contexts']
             if self.shuffle_positive:
-                random.shuffle(positive_contexts)
-            positive_context = copy.copy(positive_contexts[0])
-            recursive_apply(positive_context, lambda x: x.strip())
+                random.shuffle(positive_contexts) # change positive_contexts inplace, that's why we need shallow copy
+            positive_context = copy.copy(positive_contexts[0]) # shallow copy for stripping not to
+                                                               # affect `positive_contexts`
+            recursive_apply(positive_context, lambda x: x.strip()) # change positive_context inplace.
             positive_context_ids = self.tokenizer.encode(positive_context['title'],
                 text_pair=positive_context['text'], add_special_tokens=True)
             if len(positive_context_ids) > self.max_length:
@@ -728,27 +739,29 @@ class InbatchDataIterator(object):
                 max_batch_context_len = len(positive_context_ids)
             batch_positive_context_ids.append(positive_context_ids)
             
-            hardneg_contexts = copy.copy(item['hardneg_contexts'])
+            hardneg_contexts = copy.copy(item['hardneg_contexts']) # shallow copy for shuffling not to
+                                                                   # affect item['hardneg_contexts']
             if self.shuffle:
-                random.shuffle(hardneg_contexts)
-            hardneg_contexts = hardneg_contexts[:self.use_num_hardnegs]
+                random.shuffle(hardneg_contexts) # change hardneg_contexts inplace.
+            hardneg_contexts = hardneg_contexts[:self.use_num_hardnegs] # number of hard negatives cannot
+                                                                        # exceeds `use_num_hardnegs`
             if dynamic_hardneg_num < len(hardneg_contexts):
-                dynamic_hardneg_num = len(hardneg_contexts)
+                dynamic_hardneg_num = len(hardneg_contexts) # dynamic_hardneg_num always less than or equal use_num_hardnegs
             batch_hardneg_contexts.append(hardneg_contexts)
         
+        # this loop is to tokenize hardneg_contexts, get hardneg_mask
         batch_hardneg_context_ids = []
         batch_hardneg_mask = []
         hardneg_padding_nums = []
         for hardneg_contexts in batch_hardneg_contexts:
-            hardneg_contexts = hardneg_contexts[:dynamic_hardneg_num]
             padding_len = dynamic_hardneg_num - len(hardneg_contexts)
             hardneg_padding_nums.append(padding_len)
             hardneg_mask = [1] * len(hardneg_contexts) + [0] * padding_len
             batch_hardneg_mask.append(hardneg_mask)
-            per_sample_hardneg_context_ids = []
+            per_sample_hardneg_context_ids = [] # each sample has multiple hardneg contexts
             for hardneg_context in hardneg_contexts:
-                hardneg_context = copy.copy(hardneg_context)
-                recursive_apply(hardneg_context, lambda x: x.strip())
+                hardneg_context = copy.copy(hardneg_context) # make shallow copy for changing hardneg_context inplace
+                recursive_apply(hardneg_context, lambda x: x.strip()) # change hardneg_context inplace
                 hardneg_context_ids = self.tokenizer.encode(hardneg_context['title'], 
                     text_pair=hardneg_context['text'], add_special_tokens=True)
                 if len(hardneg_context_ids) > self.max_length:
@@ -760,6 +773,7 @@ class InbatchDataIterator(object):
             batch_hardneg_context_ids.append(per_sample_hardneg_context_ids)
         batch_hardneg_mask = torch.tensor(batch_hardneg_mask)
         
+        # this loop is to padding question_ids
         batch_question_input_ids = []
         batch_question_attn_mask = []
         for question_ids in batch_question_ids:
@@ -773,6 +787,7 @@ class InbatchDataIterator(object):
         batch_question_input_ids = torch.tensor(batch_question_input_ids)
         batch_question_attn_mask = torch.tensor(batch_question_attn_mask)
         
+        # this loop is to padding positive context ids
         batch_positive_input_ids = []
         batch_positive_attn_mask = []
         for positive_context_ids in batch_positive_context_ids:
@@ -786,6 +801,7 @@ class InbatchDataIterator(object):
         batch_positive_input_ids = torch.tensor(batch_positive_input_ids)
         batch_positive_attn_mask = torch.tensor(batch_positive_attn_mask)
         
+        # this loop is to padding hardneg context ids
         batch_hardneg_input_ids = []
         batch_hardneg_attn_mask = []
         for idx, per_sample_hardneg_context_ids in enumerate(batch_hardneg_context_ids):

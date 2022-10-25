@@ -34,7 +34,11 @@ class LossCalculator(object):
                 **kwargs
             )
         elif compute_type == "inbatch":
-            raise Exception("Inbatch loss computation has not been implemented.")
+            return self._compute_inbatch(
+                question_embeddings=inputs['question_embeddings'],
+                context_embeddings=inputs['context_embeddings'],
+                mask=inputs['mask']
+            )
         else:
             raise Exception("Unknown pipeline: '{}'".format(compute_type))
     
@@ -78,5 +82,19 @@ class LossCalculator(object):
         sim_matrix.masked_fill_((1 - hardneg_mask).to(torch.bool), -1e9)
         logits = F.log_softmax(sim_matrix, dim=-1)
         loss = logits[:, 0]
+        loss = - torch.sum(loss) / batch_size
+        return loss
+
+    def _compute_inbatch(
+        self,
+        question_embeddings: torch.Tensor,
+        context_embeddings: torch.Tensor,
+        mask: torch.Tensor
+    ):
+        batch_size, hidden_size = question_embeddings.size()
+        sim_matrix = torch.matmul(question_embeddings, torch.transpose(context_embeddings, 0, 1))
+        sim_matrix.masked_fill_(~mask, -1e9)
+        logits = F.log_softmax(sim_matrix, dim=-1)
+        loss = torch.diagonal(logits)
         loss = - torch.sum(loss) / batch_size
         return loss

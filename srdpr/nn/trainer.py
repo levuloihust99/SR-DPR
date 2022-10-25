@@ -203,6 +203,8 @@ class SRBiEncoderTrainer(object):
             return self.pos_randneg_computation
         elif pipeline == 'poshard':
             return self.pos_hardneg_computation
+        elif pipeline == 'inbatch':
+            return self.inbatch_computation
     
     def pos_randneg_computation(self, batch: Dict[Text, torch.Tensor], gradient_accumulate_steps: int):
         question_input_ids = batch['question/input_ids'].to(self.cfg.device)
@@ -693,6 +695,181 @@ class SRBiEncoderTrainer(object):
                 self.scaler.scale(surrogate).backward()
             else:
                 surrogate.backward()
+        
+        return loss.item()
+    
+    def inbatch_computation(self, batch: Dict[Text, torch.Tensor], gradient_accumulate_steps: int):
+        question_input_ids = batch['question/input_ids'].to(self.cfg.device)
+        question_attn_mask = batch['question/attn_mask'].to(self.cfg.device)
+        context_input_ids = batch['context/input_ids'].to(self.cfg.device)
+        context_attn_mask = batch['context/attn_mask'].to(self.cfg.device)
+        mask = batch['mask'].to(self.cfg.device)
+
+        if self.cfg.grad_cache:
+            return self._inbatch_computation_grad_cache(question_input_ids, question_attn_mask,
+                context_input_ids, context_attn_mask, mask, gradient_accumulate_steps)
+        else:
+            return self._inbatch_computation_no_cache(question_input_ids, question_attn_mask,
+                context_input_ids, context_attn_mask, mask, gradient_accumulate_steps)        
+    
+    def _inbatch_computation_no_cache(
+        self,
+        question_input_ids,
+        question_attn_mask,
+        context_input_ids,
+        context_attn_mask,
+        mask,
+        gradient_accumulate_steps
+    ):
+        local_q_vector = self._get_q_representations(question_input_ids, question_attn_mask)
+        local_ctxs_vector = self._get_ctx_representations(context_input_ids, context_attn_mask)
+
+        # all gather
+        distributed_world_size = self.cfg.distributed_world_size or 1
+        if distributed_world_size > 1:
+            q_vector_to_send = torch.empty_like(local_q_vector).cpu().copy_(local_q_vector).detach_()
+            ctx_vector_to_send = torch.empty_like(local_ctxs_vector).cpu().copy_(local_ctxs_vector).detach()
+
+            global_question_ctx_vectors = all_gather_list(
+                [q_vector_to_send, ctx_vector_to_send],
+                max_size=self.cfg.global_loss_buf_sz)
+
+            global_q_vector = []
+            global_ctxs_vector = []
+
+            for i, item in enumerate(global_question_ctx_vectors):
+                q_vector, ctxs_vector = item
+
+                if i != self.cfg.local_rank:
+                    global_q_vector.append(q_vector.to(local_q_vector.device))
+                    global_ctxs_vector.append(ctxs_vector.to(local_q_vector.device))
+                else:
+                    global_q_vector.append(local_q_vector)
+                    global_ctxs_vector.append(local_ctxs_vector)
+
+            global_q_vector = torch.cat(global_q_vector, dim=0)
+            global_ctxs_vector = torch.cat(global_ctxs_vector, dim=0)
+        else:
+            global_q_vector = local_q_vector
+            global_ctxs_vector = local_ctxs_vector
+        
+        loss = self.loss_calculator.compute(
+            inputs=
+            {
+                'question_embeddings': global_q_vector,
+                'context_embeddings': global_ctxs_vector,
+                'mask': mask
+            },
+            sim_func=self.cfg.sim_func,
+            compute_type='inbatch')
+    
+        distributed_factor = self.cfg.distributed_world_size or 1
+        _loss = loss * (distributed_factor / self.cfg.loss_scale)
+        if gradient_accumulate_steps > 1:
+            _loss = _loss / gradient_accumulate_steps
+        if self.cfg.fp16:
+            self.scaler.scale(_loss).backward()
+        else:
+            _loss.backward()
+
+        return loss.item()
+
+    def _inbatch_computation_grad_cache(
+        self,
+        question_input_ids,
+        question_attn_mask,
+        context_input_ids,
+        context_attn_mask,
+        mask,
+        gradient_accumulate_steps
+    ):
+        # 1. forward no grad
+        q_id_chunks = question_input_ids.split(self.cfg.q_chunk_size)
+        q_attn_mask_chunks = question_attn_mask.split(self.cfg.q_chunk_size)
+
+        ctx_id_chunks = context_input_ids.split(self.cfg.ctx_chunk_size)
+        ctx_attn_mask_chunks = context_attn_mask.split(self.cfg.ctx_chunk_size)
+
+        all_q_reps = []
+        all_ctx_reps = []
+
+        q_rnds = []
+        c_rnds = []
+
+        for id_chunk, attn_chunk in zip(q_id_chunks, q_attn_mask_chunks):
+            q_rnds.append(RandContext(id_chunk, attn_chunk))
+            with torch.no_grad():
+                if self.cfg.fp16:
+                    with autocast():
+                        q_chunk_reps = self._get_q_representations(id_chunk, attn_chunk)
+                else:
+                    q_chunk_reps = self._get_q_representations(id_chunk, attn_chunk)
+            all_q_reps.append(q_chunk_reps)
+        all_q_reps = torch.cat(all_q_reps)
+
+        for id_chunk, attn_chunk in zip(
+                ctx_id_chunks, ctx_attn_mask_chunks):
+            c_rnds.append(RandContext(id_chunk, attn_chunk))
+            with torch.no_grad():
+                if self.cfg.fp16:
+                    with autocast():
+                        ctx_chunk_reps = self._get_ctx_representations(id_chunk, attn_chunk)
+                else:
+                    ctx_chunk_reps = self._get_ctx_representations(id_chunk, attn_chunk)
+            all_ctx_reps.append(ctx_chunk_reps)
+        all_ctx_reps = torch.cat(all_ctx_reps)
+
+        # 2. loss calculation
+        all_q_reps = all_q_reps.float().detach().requires_grad_()
+        all_ctx_reps = all_ctx_reps.float().detach().requires_grad_()
+
+        # all gather
+        distributed_world_size = self.cfg.distributed_world_size or 1
+        if distributed_world_size > 1:
+            q_vector_to_send = torch.empty_like(all_q_reps).cpu().copy_(all_q_reps).detach_()
+            ctx_vector_to_send = torch.empty_like(all_ctx_reps).cpu().copy_(all_ctx_reps).detach_()
+
+            global_question_ctx_vectors = all_gather_list(
+                [q_vector_to_send, ctx_vector_to_send],
+                max_size=self.cfg.global_loss_buf_sz)
+            
+            global_q_vector = []
+            global_ctxs_vector = []
+
+            for i, item in enumerate(global_question_ctx_vectors):
+                q_vector, ctxs_vector = item
+
+                if i != self.cfg.local_rank:
+                    global_q_vector.append(q_vector.to(all_q_reps.device))
+                    global_ctxs_vector.append(ctxs_vector.to(all_q_reps.device))
+                else:
+                    global_q_vector.append(all_q_reps)
+                    global_ctxs_vector.append(all_ctx_reps)
+
+            global_q_vector = torch.cat(global_q_vector, dim=0)
+            global_ctxs_vector = torch.cat(global_ctxs_vector, dim=0)
+        else:
+            global_q_vector = all_q_reps
+            global_ctxs_vector = all_ctx_reps
+        
+        loss = self.loss_calculator.compute(
+            inputs=
+            {
+                'question_embeddings': global_q_vector,
+                'context_embeddings': global_ctxs_vector,
+                'mask': mask
+            },
+            sim_func=self.cfg.sim_func,
+            compute_type='inbatch')
+
+        distributed_factor = self.cfg.distributed_world_size or 1
+        _loss = loss * (distributed_factor / self.cfg.loss_scale)
+        if gradient_accumulate_steps > 1:
+            _loss = _loss / gradient_accumulate_steps
+        if self.cfg.fp16:
+            self.scaler.scale(_loss).backward()
+        else:
+            _loss.backward()
         
         return loss.item()
 
