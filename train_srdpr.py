@@ -1,16 +1,19 @@
 import logging
 import os
 import hydra
+import glob
 from omegaconf import DictConfig
 
 import torch
 import torch.distributed as dist
 from dpr.models import init_biencoder_components
+from dpr.models.biencoder import BiEncoder
 
 from dpr.options import set_encoder_params_from_state, setup_args_gpu, set_seed, print_args
+from dpr.utils.data_utils import ShardedDataIterableDataset, read_data_from_json_files
 from dpr.utils.model_utils import get_model_file, get_model_obj, get_schedule_linear, load_states_from_checkpoint, setup_for_distributed_mode
 from srdpr.constants import HARD_PIPELINE_NAME, HARD_SEED, INBATCH_PIPELINE_NAME, INBATCH_SEED, POSHARD_PIPELINE_NAME, POSHARD_SEED
-from srdpr.data_helpers.dataloader import HardDataIterator, InbatchDataIterator, PoshardDataIterator, StatelessIdxsGenerator
+from srdpr.data_helpers.dataloader import HardDataIterator, InbatchDataIterator, PoshardDataIterator, StatelessIdxsGenerator, WrapperGCDPRInbatchIterator
 from srdpr.data_helpers.datasets import ByteDataset
 from srdpr.utils.logging_utils import add_color_formatter
 from srdpr.utils.helpers import dictconfig_to_namespace
@@ -70,15 +73,44 @@ def main(cfg: DictConfig):
             max_length=cfg.max_length
         )
     if INBATCH_PIPELINE_NAME in pipelines_to_build:
-        iterators[INBATCH_PIPELINE_NAME] = InbatchDataIterator(
-            dataset=dataset,
-            idxs_generator=StatelessIdxsGenerator(len(dataset), shuffle_seed=cfg.seed + INBATCH_SEED),
-            tokenizer=tensorizer.tokenizer,
-            forward_batch_size=getattr(cfg.pipeline, INBATCH_PIPELINE_NAME).forward_batch_size,
-            use_hardneg=getattr(cfg.pipeline, INBATCH_PIPELINE_NAME).use_hardneg,
-            use_num_hardnegs=getattr(cfg.pipeline, INBATCH_PIPELINE_NAME).use_num_hardnegs,
-            max_length=cfg.max_length,
+        # iterators[INBATCH_PIPELINE_NAME] = InbatchDataIterator(
+        #     dataset=dataset,
+        #     idxs_generator=StatelessIdxsGenerator(len(dataset), shuffle_seed=cfg.seed + INBATCH_SEED),
+        #     tokenizer=tensorizer.tokenizer,
+        #     forward_batch_size=getattr(cfg.pipeline, INBATCH_PIPELINE_NAME).forward_batch_size,
+        #     use_hardneg=getattr(cfg.pipeline, INBATCH_PIPELINE_NAME).use_hardneg,
+        #     use_num_hardnegs=getattr(cfg.pipeline, INBATCH_PIPELINE_NAME).use_num_hardnegs,
+        #     max_length=cfg.max_length,
+        # )
+        upsample_rates = None
+        if cfg.train_files_upsample_rates is not None:
+            upsample_rates = eval(cfg.train_files_upsample_rates)
+        data_files = glob.glob(cfg.train_file)
+        data = read_data_from_json_files(data_files, upsample_rates)
+
+        # filter those without positive ctx
+        data = [r for r in data if len(r['positive_ctxs']) > 0]
+        logger.info('Total cleaned data size: {}'.format(len(data)))
+        process_fn = BiEncoder.get_input_create_fn(
+            tensorizer, True, cfg.hard_negatives, cfg.other_negatives,
+            shuffle=True,
+            shuffle_positives=cfg.shuffle_positive_ctx
         )
+        shard_id = cfg.local_rank if cfg.local_rank != -1 else 0
+        distributed_factor = cfg.distributed_world_size or 1
+        train_data_iterator = ShardedDataIterableDataset(
+            data,
+            process_fn=process_fn,
+            shard_id=shard_id,
+            num_shards=distributed_factor,
+            batch_size=cfg.batch_size, shuffle=True, shuffle_seed=cfg.seed, offset=0,
+            strict_batch_size=False,  # this is not really necessary, one can probably disable it
+        )
+        iterable = WrapperGCDPRInbatchIterator(
+            num_train_epochs=cfg.num_train_epochs,
+            train_data_iterator=train_data_iterator
+        )
+        iterators[INBATCH_PIPELINE_NAME] = iter(iterable)
 
     scheduler = get_schedule_linear(optimizer, cfg.warmup_steps, cfg.total_updates)
     trained_steps = 0

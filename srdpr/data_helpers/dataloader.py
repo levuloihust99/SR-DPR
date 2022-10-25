@@ -5,6 +5,7 @@ import torch
 
 from collections import deque
 from typing import Optional
+from torch.utils.data import IterableDataset, DataLoader
 
 from dpr.utils.data_utils import normalize_question
 from srdpr.data_helpers.datasets import ByteDataset
@@ -666,12 +667,6 @@ class InbatchDataIterator(object):
         self.idxs_generator.set_epoch(update['epoch'])
         self.idxs_generator.set_iteration(update['iteration'])
         return batch
-
-    def __next__(self):
-        batch, update = self.data_queue.get()
-        self.idxs_generator.set_epoch(update['epoch'])
-        self.idxs_generator.set_iteration(update['iteration'])
-        return batch
     
     @staticmethod
     def feeding(
@@ -856,3 +851,36 @@ class InbatchDataIterator(object):
             'ids': ids
         }
         return batch
+
+
+class WrapperGCDPRInbatchIterator(object):
+    def __init__(
+        self,
+        num_train_epochs: int,
+        train_data_iterator,
+    ):
+        self.num_train_epochs = num_train_epochs
+        self.train_data_iterator = train_data_iterator
+    
+    def __iter__(self):
+        for epoch in range(self.num_train_epochs):
+            self.train_data_iterator.set_epoch(epoch)
+            data_loader = DataLoader(self.train_data_iterator, num_workers=1, batch_size=None, shuffle=False)
+            for biencoder_batch in data_loader:
+                # TODO: convert to appropriate format
+                question_input_ids = biencoder_batch.question_ids
+                question_attn_mask = (question_input_ids).to(torch.long)
+                context_input_ids = biencoder_batch.context_ids
+                positive_context_input_ids = context_input_ids[0::2, :]
+                hardneg_context_input_ids = context_input_ids[1::2, :]
+                context_input_ids = torch.cat([positive_context_input_ids, hardneg_context_input_ids], dim=0)
+                context_attn_mask = (context_input_ids > 0).to(torch.long)
+                mask = torch.ones(question_input_ids.size(0), context_input_ids.size(0), dtype=torch.bool)
+                batch = {
+                    'question/input_ids': question_input_ids,
+                    'question/attn_mask': question_attn_mask,
+                    'context/input_ids': context_input_ids,
+                    'context/attn_mask': context_attn_mask,
+                    'mask': mask
+                }
+                yield batch
