@@ -869,7 +869,7 @@ class WrapperGCDPRInbatchIterator(object):
             for biencoder_batch in data_loader:
                 # TODO: convert to appropriate format
                 question_input_ids = biencoder_batch.question_ids
-                question_attn_mask = (question_input_ids).to(torch.long)
+                question_attn_mask = (question_input_ids > 0).to(torch.long)
                 context_input_ids = biencoder_batch.context_ids
                 positive_context_input_ids = context_input_ids[0::2, :]
                 hardneg_context_input_ids = context_input_ids[1::2, :]
