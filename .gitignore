@@ -7,3 +7,5 @@ query_embeddings/
 .venv*/
 .vscode/
 downloads/
+DATA/
+conf/
