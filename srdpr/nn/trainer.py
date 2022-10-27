@@ -1,4 +1,5 @@
 import os
+import time
 import torch
 import logging
 import tensorflow as tf
@@ -10,7 +11,8 @@ from srdpr.constants import (
     INBATCH_PIPELINE_NAME,
     POS_PIPELINE_NAME,
     POSHARD_PIPELINE_NAME,
-    HARD_PIPELINE_NAME
+    HARD_PIPELINE_NAME,
+    LOG_SEPARATOR
 )
 from srdpr.nn.losses import LossCalculator
 from srdpr.nn.grad_cache import RandContext
@@ -146,22 +148,37 @@ class SRBiEncoderTrainer(object):
 
     def run_train(self):
         if self.trained_steps > 0:
-            logger.info("Model has been updated for {} steps.".format(self.trained_steps))
+            logger.info("[Rank {}] Model has been updated for {} steps.".format(self.cfg.local_rank, self.trained_steps))
         self.biencoder.train()
+        self._fetch_data_time = 0.0
+        self._forward_backward_time = 0.0
         for step in range(self.trained_steps, self.cfg.total_updates):
             per_step_loss = self.train_step(step)
             if (step + 1) % self.cfg.log_batch_step == 0:
-                logger.info("Step: {}/{} :: Loss = {}".format(step + 1, self.cfg.total_updates,
-                    per_step_loss))
+                log_string = f"[Rank {self.cfg.local_rank}] "
+                step_log_string = "Step: {}/{}".format(step + 1, self.cfg.total_updates)
+                log_string += step_log_string + " " * max(20 - len(step_log_string), 0) + LOG_SEPARATOR
+                loss_log_string = "Loss = {}".format(per_step_loss)
+                log_string += loss_log_string + " " * max(30 - len(loss_log_string), 0) + LOG_SEPARATOR
+                fetch_time_log_string = "Fetch data time = {}".format(self._fetch_data_time)
+                log_string += fetch_time_log_string + " " * max(40 - len(fetch_time_log_string), 0) + LOG_SEPARATOR
+                fwd_bwd_time_log_string = "Forward backward time = {}".format(self._forward_backward_time)
+                log_string += fwd_bwd_time_log_string
+                logger.info(log_string)
+            self._fetch_data_time = 0.0
+            self._forward_backward_time = 0.0
             if (step + 1) % self.cfg.save_checkpoint_freq == 0:
                 self.validate_and_save(step)
                 self.biencoder.train()
     
     def train_step(self, step):
         pipeline = self.get_pipeline_for_step(step)
+        t0 = time.perf_counter()
         batches = self.fetch_batches(pipeline)
+        self._fetch_data_time += (time.perf_counter() - t0)
         computation_fn = self.get_computation_fn(pipeline)
 
+        t0 = time.perf_counter()
         per_update_loss = 0.0
         for batch in batches:
             loss = computation_fn(batch, getattr(self.cfg.pipeline, pipeline).gradient_accumulate_steps)
@@ -181,6 +198,7 @@ class SRBiEncoderTrainer(object):
 
         self.scheduler.step()
         self.biencoder.zero_grad()
+        self._forward_backward_time += (time.perf_counter() - t0)
         return per_update_loss
 
     def fetch_batches(self, pipeline):
@@ -189,7 +207,34 @@ class SRBiEncoderTrainer(object):
         num_batches = getattr(self.cfg.pipeline, pipeline).gradient_accumulate_steps
         for _ in range(num_batches):
             batches.append(next(iterator))
-        return batches
+        local_batches = batches
+        distributed_factor = self.cfg.distributed_world_size or 1
+        if distributed_factor > 1:
+            local_batches = [self._get_local_batch(batch, distributed_factor) for batch in batches]
+        return local_batches
+    
+    def _get_local_batch(self, batch, distributed_factor):
+        chunked_batch = {}
+        for k, v in batch.items():
+            if k in {'mask', 'duplicate_mask', 'hardneg_mask'}:
+                chunked_batch[k] = v
+            else:
+                chunked_batch[k] = self._get_local_chunks(v, distributed_factor)[self.cfg.local_rank]
+        return chunked_batch
+    
+    @staticmethod
+    def _get_local_chunks(v, distributed_factor):
+        batch_size = v.size(0)
+        chunk_size = batch_size // distributed_factor
+        remainder = batch_size - chunk_size * distributed_factor
+        added = [1] * remainder + [0] * (distributed_factor - remainder)
+        chunk_sizes = [chunk_size + added[i] for i in range(distributed_factor)]
+        idx = 0
+        chunks = []
+        for chunk_size in chunk_sizes:
+            chunks.append(v[idx: idx + chunk_size])
+            idx += chunk_size
+        return chunks
 
     def get_pipeline_for_step(self, step):
         index = step % self._cycle_walk
@@ -912,19 +957,27 @@ class SRBiEncoderTrainer(object):
     def _get_ctx_representations(self, input_ids: torch.Tensor, attn_mask: torch.Tensor):
         if self.cfg.fp16:
             with autocast():
-                _, ctx_vectors, _ = self.biencoder.get_representation(self.biencoder.ctx_model,
-                    input_ids, None, attn_mask, self.biencoder.fix_ctx_encoder)
+                ctxs_vector = self.biencoder(
+                    None, None, None,
+                    input_ids, None, attn_mask
+                )[1]
         else:
-            _, ctx_vectors, _ = self.biencoder.get_representation(self.biencoder.ctx_model,
-                input_ids, None, attn_mask, self.biencoder.fix_ctx_encoder)
-        return ctx_vectors
+            ctxs_vector = self.biencoder(
+                None, None, None,
+                input_ids, None, attn_mask
+            )[1]
+        return ctxs_vector
     
     def _get_q_representations(self, input_ids: torch.Tensor, attn_mask: torch.Tensor):
         if self.cfg.fp16:
             with autocast():
-                _, q_vectors, _ = self.biencoder.get_representation(self.biencoder.question_model,
-                    input_ids, None, attn_mask, self.biencoder.fix_q_encoder)
+                q_vector = self.biencoder(
+                    input_ids, None, attn_mask,
+                    None, None, None,
+                )[0]
         else:
-            _, q_vectors, _ = self.biencoder.get_representation(self.biencoder.question_model,
-                input_ids, None, attn_mask, self.biencoder.fix_q_encoder)
-        return q_vectors
+            q_vector = self.biencoder(
+                input_ids, None, attn_mask,
+                None, None, None,
+            )[0]
+        return q_vector

@@ -1,5 +1,6 @@
 import logging
 import os
+import sys
 import hydra
 import glob
 from omegaconf import DictConfig
@@ -136,4 +137,12 @@ def main(cfg: DictConfig):
 
 
 if __name__ == "__main__":
+    hydra_formatted_args = []
+    # convert the cli params added by torch.distributed.launch into Hydra format
+    for arg in sys.argv:
+        if arg.startswith("--"):
+            hydra_formatted_args.append(arg[len("--") :])
+        else:
+            hydra_formatted_args.append(arg)
+    sys.argv = hydra_formatted_args
     main()
