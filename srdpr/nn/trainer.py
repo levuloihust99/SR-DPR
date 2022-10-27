@@ -38,8 +38,7 @@ class SRBiEncoderTrainer(object):
         self.scheduler = scheduler
         self.iterators = iterators
         for pipeline, iterator in iterators.items():
-            if pipeline != 'inbatch':
-                iterator.start_worker()
+            iterator.start_worker()
         self.trained_steps = trained_steps
         self.loss_calculator = LossCalculator()
         self.scaler = GradScaler() if cfg.fp16 else None

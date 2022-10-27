@@ -73,44 +73,15 @@ def main(cfg: DictConfig):
             max_length=cfg.max_length
         )
     if INBATCH_PIPELINE_NAME in pipelines_to_build:
-        # iterators[INBATCH_PIPELINE_NAME] = InbatchDataIterator(
-        #     dataset=dataset,
-        #     idxs_generator=StatelessIdxsGenerator(len(dataset), shuffle_seed=cfg.seed + INBATCH_SEED),
-        #     tokenizer=tensorizer.tokenizer,
-        #     forward_batch_size=getattr(cfg.pipeline, INBATCH_PIPELINE_NAME).forward_batch_size,
-        #     use_hardneg=getattr(cfg.pipeline, INBATCH_PIPELINE_NAME).use_hardneg,
-        #     use_num_hardnegs=getattr(cfg.pipeline, INBATCH_PIPELINE_NAME).use_num_hardnegs,
-        #     max_length=cfg.max_length,
-        # )
-        upsample_rates = None
-        if cfg.train_files_upsample_rates is not None:
-            upsample_rates = eval(cfg.train_files_upsample_rates)
-        data_files = glob.glob(cfg.train_file)
-        data = read_data_from_json_files(data_files, upsample_rates)
-
-        # filter those without positive ctx
-        data = [r for r in data if len(r['positive_ctxs']) > 0]
-        logger.info('Total cleaned data size: {}'.format(len(data)))
-        process_fn = BiEncoder.get_input_create_fn(
-            tensorizer, True, cfg.hard_negatives, cfg.other_negatives,
-            shuffle=True,
-            shuffle_positives=cfg.shuffle_positive_ctx
+        iterators[INBATCH_PIPELINE_NAME] = InbatchDataIterator(
+            dataset=dataset,
+            idxs_generator=StatelessIdxsGenerator(len(dataset), shuffle_seed=cfg.seed + INBATCH_SEED),
+            tokenizer=tensorizer.tokenizer,
+            forward_batch_size=getattr(cfg.pipeline, INBATCH_PIPELINE_NAME).forward_batch_size,
+            use_hardneg=getattr(cfg.pipeline, INBATCH_PIPELINE_NAME).use_hardneg,
+            use_num_hardnegs=getattr(cfg.pipeline, INBATCH_PIPELINE_NAME).use_num_hardnegs,
+            max_length=cfg.max_length,
         )
-        shard_id = cfg.local_rank if cfg.local_rank != -1 else 0
-        distributed_factor = cfg.distributed_world_size or 1
-        train_data_iterator = ShardedDataIterableDataset(
-            data,
-            process_fn=process_fn,
-            shard_id=shard_id,
-            num_shards=distributed_factor,
-            batch_size=cfg.batch_size, shuffle=True, shuffle_seed=cfg.seed, offset=0,
-            strict_batch_size=False,  # this is not really necessary, one can probably disable it
-        )
-        iterable = WrapperGCDPRInbatchIterator(
-            num_train_epochs=cfg.num_train_epochs,
-            train_data_iterator=train_data_iterator
-        )
-        iterators[INBATCH_PIPELINE_NAME] = iter(iterable)
 
     scheduler = get_schedule_linear(optimizer, cfg.warmup_steps, cfg.total_updates)
     trained_steps = 0
