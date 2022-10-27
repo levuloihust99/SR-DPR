@@ -95,6 +95,5 @@ class LossCalculator(object):
         sim_matrix = torch.matmul(question_embeddings, torch.transpose(context_embeddings, 0, 1))
         sim_matrix.masked_fill_(~mask, -1e9)
         logits = F.log_softmax(sim_matrix, dim=-1)
-        loss = torch.diagonal(logits)
-        loss = - torch.sum(loss) / batch_size
+        loss = F.nll_loss(logits, torch.arange(batch_size).to(logits.device), reduction='mean')
         return loss

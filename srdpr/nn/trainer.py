@@ -871,6 +871,42 @@ class SRBiEncoderTrainer(object):
             self.scaler.scale(_loss).backward()
         else:
             _loss.backward()
+
+        # 3. chunk forward backward
+        q_grads = all_q_reps.grad.split(self.cfg.q_chunk_size)
+        ctx_grads = all_ctx_reps.grad.split(self.cfg.ctx_chunk_size)
+
+        for id_chunk, attn_chunk, grad, rnd in zip(
+                q_id_chunks, q_attn_mask_chunks, q_grads, q_rnds):
+            with rnd:
+                if self.cfg.fp16:
+                    with autocast():
+                        q_chunk_reps = self._get_q_representations(id_chunk, attn_chunk)
+                        surrogate = torch.dot(q_chunk_reps.flatten().float(), grad.flatten())
+                else:
+                    q_chunk_reps = self._get_q_representations(id_chunk, attn_chunk)
+                    surrogate = torch.dot(q_chunk_reps.flatten().float(), grad.flatten())
+
+            if self.cfg.fp16:
+                self.scaler.scale(surrogate).backward()
+            else:
+                surrogate.backward()
+
+        for id_chunk, attn_chunk, grad, rnd in zip(
+                ctx_id_chunks, ctx_attn_mask_chunks, ctx_grads, c_rnds):
+            with rnd:
+                if self.cfg.fp16:
+                    with autocast():
+                        q_chunk_reps = self._get_q_representations(id_chunk, attn_chunk)
+                        surrogate = torch.dot(q_chunk_reps.flatten().float(), grad.flatten())
+                else:
+                    q_chunk_reps = self._get_q_representations(id_chunk, attn_chunk)
+                    surrogate = torch.dot(q_chunk_reps.flatten().float(), grad.flatten())
+
+            if self.cfg.fp16:
+                self.scaler.scale(surrogate).backward()
+            else:
+                surrogate.backward()
         
         return loss.item()
 
