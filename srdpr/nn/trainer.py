@@ -152,6 +152,7 @@ class SRBiEncoderTrainer(object):
         self.biencoder.train()
         self._fetch_data_time = 0.0
         self._forward_backward_time = 0.0
+        t0 = time.perf_counter()
         for step in range(self.trained_steps, self.cfg.total_updates):
             per_step_loss = self.train_step(step)
             if (step + 1) % self.cfg.log_batch_step == 0:
@@ -160,13 +161,18 @@ class SRBiEncoderTrainer(object):
                 log_string += step_log_string + " " * max(20 - len(step_log_string), 0) + LOG_SEPARATOR
                 loss_log_string = "Loss = {}".format(per_step_loss)
                 log_string += loss_log_string + " " * max(30 - len(loss_log_string), 0) + LOG_SEPARATOR
-                fetch_time_log_string = "Fetch data time = {}".format(self._fetch_data_time)
-                log_string += fetch_time_log_string + " " * max(40 - len(fetch_time_log_string), 0) + LOG_SEPARATOR
-                fwd_bwd_time_log_string = "Forward backward time = {}".format(self._forward_backward_time)
-                log_string += fwd_bwd_time_log_string
+                fetch_time_log_string = "Fetch(s) = {}".format(self._fetch_data_time)
+                log_string += fetch_time_log_string + " " * max(35 - len(fetch_time_log_string), 0) + LOG_SEPARATOR
+                fwd_bwd_time_log_string = "FwdBwd(s) = {}".format(self._forward_backward_time)
+                log_string += fwd_bwd_time_log_string + " " * max(35 - len(fwd_bwd_time_log_string), 0) + LOG_SEPARATOR
+                elapsed_time_string = "Elapsed(s) = {}".format(time.perf_counter() - t0)
+                log_string += elapsed_time_string
                 logger.info(log_string)
-            self._fetch_data_time = 0.0
-            self._forward_backward_time = 0.0
+
+                self._fetch_data_time = 0.0
+                self._forward_backward_time = 0.0
+                t0 = time.perf_counter()
+
             if (step + 1) % self.cfg.save_checkpoint_freq == 0:
                 self.validate_and_save(step)
                 self.biencoder.train()
