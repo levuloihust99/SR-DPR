@@ -39,6 +39,9 @@ class ByteDataset(Dataset):
         return dataset_size
     
     def __getitem__(self, idx):
+        if idx >= len(self):
+            raise StopIteration
+
         # get position of record
         self.idx_reader.seek(idx * self.idx_record_size + 4, 0)
         position = self.idx_reader.read(self.idx_record_size)

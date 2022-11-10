@@ -7,11 +7,13 @@ from omegaconf import DictConfig
 
 import torch
 import torch.distributed as dist
+from torch.utils.tensorboard import SummaryWriter
+
 from dpr.models import init_biencoder_components
 from dpr.models.biencoder import BiEncoder
-
 from dpr.options import set_encoder_params_from_state, setup_args_gpu, set_seed, print_args
 from dpr.utils.data_utils import ShardedDataIterableDataset, read_data_from_json_files
+
 from dpr.utils.model_utils import get_model_file, get_model_obj, get_schedule_linear, load_states_from_checkpoint, setup_for_distributed_mode
 from srdpr.constants import HARD_PIPELINE_NAME, HARD_SEED, INBATCH_PIPELINE_NAME, INBATCH_SEED, POSHARD_PIPELINE_NAME, POSHARD_SEED
 from srdpr.data_helpers.dataloader import HardDataIterator, InbatchDataIterator, PoshardDataIterator, StatelessIdxsGenerator, WrapperGCDPRInbatchIterator
@@ -124,12 +126,14 @@ def main(cfg: DictConfig):
         if saved_state.step:
             trained_steps = saved_state.step
 
+    summary_writer = SummaryWriter(cfg.log_dir)
     trainer = SRBiEncoderTrainer(
         cfg=cfg,
         biencoder=biencoder,
         optimizer=optimizer,
         scheduler=scheduler,
         iterators=iterators,
+        summary_writer=summary_writer,
         trained_steps=trained_steps
     )
 

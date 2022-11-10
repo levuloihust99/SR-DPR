@@ -33,3 +33,18 @@ def dictconfig_to_namespace(cfg: Union[DictConfig, Any]):
         setattr(args, attr_name, dictconfig_to_namespace(attr))
 
     return args
+
+
+def cfg_to_dict(cfg: argparse.Namespace):
+    output = {}
+    if isinstance(cfg, argparse.Namespace):
+        cfg = cfg.__dict__
+    elif isinstance(cfg, list):
+        cfg = {k: v for k, v in enumerate(cfg)}
+    for k, v in cfg.items():
+        if isinstance(v, (list, dict, argparse.Namespace)):
+            v = cfg_to_dict(v)
+        elif not (isinstance(v, (int, str, tuple, float)) or v is None): # ignore none json serializable params
+            continue
+        output[k] = v
+    return output

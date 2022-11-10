@@ -16,6 +16,7 @@ from srdpr.constants import (
 )
 from srdpr.nn.losses import LossCalculator
 from srdpr.nn.grad_cache import RandContext
+from srdpr.utils.helpers import cfg_to_dict
 from dpr.models.biencoder import BiEncoder
 from dpr.utils.dist_utils import all_gather_list
 from dpr.utils.model_utils import get_model_obj, CheckpointState
@@ -32,6 +33,7 @@ class SRBiEncoderTrainer(object):
         optimizer,
         scheduler,
         iterators,
+        summary_writer,
         trained_steps: int,
     ):
         self.cfg = cfg
@@ -41,6 +43,9 @@ class SRBiEncoderTrainer(object):
         self.iterators = iterators
         for pipeline, iterator in iterators.items():
             iterator.start_worker()
+        self.summary_writer = summary_writer
+        self.history = {f"{pipeline}/loss": None for pipeline in iterators}
+        self.history.update({f"{pipeline}/step": 0 for pipeline in iterators})
         self.trained_steps = trained_steps
         self.loss_calculator = LossCalculator()
         self.scaler = GradScaler() if cfg.fp16 else None
@@ -93,7 +98,8 @@ class SRBiEncoderTrainer(object):
             for f in files_to_delete:
                 tf.io.gfile.remove(f)
 
-        meta_params = get_encoder_params_state(cfg)
+        # meta_params = get_encoder_params_state(cfg)
+        meta_params = cfg_to_dict(cfg)
 
         pipeline_dict = {k: v.get_idxs_generator_state()
             for k, v in self.iterators.items()}
@@ -147,6 +153,7 @@ class SRBiEncoderTrainer(object):
             #     logger.info('New Best validation checkpoint %s', cp_name)
 
     def run_train(self):
+        logger.info("*************************************** Start training ***************************************")
         if self.trained_steps > 0:
             logger.info("[Rank {}] Model has been updated for {} steps.".format(self.cfg.local_rank, self.trained_steps))
         self.biencoder.train()
@@ -154,19 +161,20 @@ class SRBiEncoderTrainer(object):
         self._forward_backward_time = 0.0
         t0 = time.perf_counter()
         for step in range(self.trained_steps, self.cfg.total_updates):
-            per_step_loss = self.train_step(step)
+            pipeline = self.get_pipeline_for_step(step)
+            per_step_loss = self.train_step(pipeline)
+
             if (step + 1) % self.cfg.log_batch_step == 0:
                 log_string = f"[Rank {self.cfg.local_rank}] "
-                step_log_string = "Step: {}/{}".format(step + 1, self.cfg.total_updates)
-                log_string += step_log_string + " " * max(20 - len(step_log_string), 0) + LOG_SEPARATOR
-                loss_log_string = "Loss = {}".format(per_step_loss)
-                log_string += loss_log_string + " " * max(30 - len(loss_log_string), 0) + LOG_SEPARATOR
-                fetch_time_log_string = "Fetch(s) = {}".format(self._fetch_data_time)
-                log_string += fetch_time_log_string + " " * max(35 - len(fetch_time_log_string), 0) + LOG_SEPARATOR
-                fwd_bwd_time_log_string = "FwdBwd(s) = {}".format(self._forward_backward_time)
-                log_string += fwd_bwd_time_log_string + " " * max(35 - len(fwd_bwd_time_log_string), 0) + LOG_SEPARATOR
-                elapsed_time_string = "Elapsed(s) = {}".format(time.perf_counter() - t0)
-                log_string += elapsed_time_string
+                log_string += "\n\u2022 Step: {}/{}\n".format(step + 1, self.cfg.total_updates)
+                loss_log_string = "\u2022 Loss: {} = {} *\n".format(pipeline.capitalize(), per_step_loss)
+                for p in self._available_pipelines:
+                    if p != pipeline:
+                        loss_log_string += "        {} = {}\n".format(p.capitalize(), self.history[f"{p}/loss"])
+                log_string += loss_log_string
+                log_string += "\u2022 Fetch(s) = {}\n".format(self._fetch_data_time)
+                log_string += "\u2022 FwdBwd(s) = {}\n".format(self._forward_backward_time)
+                log_string += "\u2022 Elapsed(s) = {}\n".format(time.perf_counter() - t0)
                 logger.info(log_string)
 
                 self._fetch_data_time = 0.0
@@ -176,9 +184,9 @@ class SRBiEncoderTrainer(object):
             if (step + 1) % self.cfg.save_checkpoint_freq == 0:
                 self.validate_and_save(step)
                 self.biencoder.train()
+        self.summary_writer.close()
     
-    def train_step(self, step):
-        pipeline = self.get_pipeline_for_step(step)
+    def train_step(self, pipeline):
         t0 = time.perf_counter()
         batches = self.fetch_batches(pipeline)
         self._fetch_data_time += (time.perf_counter() - t0)
@@ -191,6 +199,10 @@ class SRBiEncoderTrainer(object):
             per_update_loss += loss
 
         per_update_loss /= len(batches)
+        self.history[f"{pipeline}/loss"] = per_update_loss
+        self.history[f"{pipeline}/step"] += 1
+        if self.history[f"{pipeline}/step"] % getattr(self.cfg.pipeline, pipeline).logging_step == 0:
+            self.summary_writer.add_scalar(f"{pipeline}/loss", per_update_loss, self.history[f"{pipeline}/step"])
 
         if self.cfg.fp16:
             self.scaler.unscale_(self.optimizer)
