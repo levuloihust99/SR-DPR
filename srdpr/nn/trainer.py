@@ -162,7 +162,7 @@ class SRBiEncoderTrainer(object):
         t0 = time.perf_counter()
         for step in range(self.trained_steps, self.cfg.total_updates):
             pipeline = self.get_pipeline_for_step(step)
-            per_step_loss = self.train_step(pipeline)
+            per_step_loss = self.train_step(step, pipeline)
 
             if (step + 1) % self.cfg.log_batch_step == 0:
                 log_string = f"[Rank {self.cfg.local_rank}] "
@@ -186,7 +186,7 @@ class SRBiEncoderTrainer(object):
                 self.biencoder.train()
         self.summary_writer.close()
     
-    def train_step(self, pipeline):
+    def train_step(self, step, pipeline):
         t0 = time.perf_counter()
         batches = self.fetch_batches(pipeline)
         self._fetch_data_time += (time.perf_counter() - t0)
@@ -217,6 +217,9 @@ class SRBiEncoderTrainer(object):
         self.scheduler.step()
         self.biencoder.zero_grad()
         self._forward_backward_time += (time.perf_counter() - t0)
+
+        self.summary_writer.add_scalar("learning_rate", self.scheduler.get_last_lr()[0], step + 1)
+
         return per_update_loss
 
     def fetch_batches(self, pipeline):
