@@ -32,9 +32,6 @@ def main(cfg: DictConfig):
 
     cfg = dictconfig_to_namespace(cfg)
 
-    if cfg.output_dir is not None:
-        os.makedirs(cfg.output_dir, exist_ok=True)
-
     setup_args_gpu(cfg)
     set_seed(cfg)
     print_args(cfg)
