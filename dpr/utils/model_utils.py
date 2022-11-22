@@ -137,17 +137,4 @@ def load_states_from_checkpoint(model_file: str) -> CheckpointState:
     with tf.io.gfile.GFile(model_file, "rb") as reader:
         state_dict = torch.load(reader, map_location=lambda s, l: default_restore_location(s, 'cpu'))
     logger.info('model_state_dict keys %s', state_dict.keys())
-    # restore RNG
-    cpu_state = state_dict.pop('cpu_state', None)
-    cuda_states = state_dict.pop('cuda_states', None)
-    if cpu_state is not None:
-        torch.set_rng_state(cpu_state)
-    if cuda_states is not None:
-        if torch.cuda.is_available() > 0:
-            device_id = torch.cuda.current_device()
-            if device_id < len(cuda_states):
-                try:
-                    torch.cuda.set_rng_state(cuda_states[device_id])
-                except Exception:
-                    logger.info("Invalid RNG state restored from checkpoint file '{}'".format(model_file))
     return argparse.Namespace(**state_dict)

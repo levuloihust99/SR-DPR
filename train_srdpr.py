@@ -120,6 +120,21 @@ def main(cfg: DictConfig):
                         iteration = iteration - specific_pipeline_state['shift_back']
                     iterators[pipeline].set_idxs_generator_state(epoch, iteration)
         
+        # restore RNG
+        cpu_state = getattr(saved_state, 'cpu_state', None)
+        if cpu_state is not None:
+            torch.set_rng_state(cpu_state)
+        
+        cuda_states = getattr(saved_state, 'cuda_states', None)
+        if cuda_states is not None:
+            if torch.cuda.is_available() > 0:
+                device_id = torch.cuda.current_device()
+                if device_id < len(cuda_states):
+                    try:
+                        torch.cuda.set_rng_state(cuda_states[device_id])
+                    except Exception:
+                        logger.info("Invalid RNG state restored from checkpoint file '{}'".format(model_file))
+        
         if saved_state.step:
             trained_steps = saved_state.step
 
