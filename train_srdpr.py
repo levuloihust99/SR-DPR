@@ -98,14 +98,15 @@ def main(cfg: DictConfig):
         if saved_state.scheduler_dict:
             scheduler_state = saved_state.scheduler_dict
             logger.info("Loading scheduler state %s", scheduler_state)
-            shift = int(scheduler_state["last_epoch"])
-            logger.info("Steps shift %d", shift)
-            scheduler = get_schedule_linear(
-                optimizer,
-                cfg.warmup_steps,
-                cfg.total_updates,
-                steps_shift=shift
-            )
+            scheduler.load_state_dict(scheduler_state)
+            # shift = int(scheduler_state["last_epoch"])
+            # logger.info("Steps shift %d", shift)
+            # scheduler = get_schedule_linear(
+            #     optimizer,
+            #     cfg.warmup_steps,
+            #     cfg.total_updates,
+            #     steps_shift=shift
+            # )
         
         if saved_state.pipeline_dict: 
             pipeline_state = saved_state.pipeline_dict
