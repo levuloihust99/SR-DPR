@@ -2,6 +2,7 @@ import copy
 import random
 import multiprocessing as mp
 import torch
+import logging
 
 from collections import deque
 from typing import Optional
@@ -226,6 +227,7 @@ class PoshardDataIterator(object):
             idxs_generator, forward_batch_size, self.collate_fn), daemon=True)
     
     def start_worker(self):
+        logging.getLogger("transformers.tokenization_utils_base").disabled = True
         self.feeding_worker.start()
     
     def get_idxs_generator_state(self):
@@ -459,6 +461,7 @@ class HardDataIterator(object):
                 "This option is for future release.")
     
     def start_worker(self):
+        logging.getLogger("transformers.tokenization_utils_base").disabled = True
         self.feeding_worker.start()
     
     def get_idxs_generator_state(self):
@@ -650,6 +653,7 @@ class InbatchDataIterator(object):
                 self.collate_fn, self.forward_batch_size), daemon=True)
 
     def start_worker(self):
+        logging.getLogger("transformers.tokenization_utils_base").disabled = True
         self.feeding_worker.start()
     
     def get_idxs_generator_state(self):
