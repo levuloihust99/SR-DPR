@@ -74,6 +74,7 @@ def feeding(feeding_queues, args):
     stop = int(stop)
     if stop == -1:
         stop = len(dataset)
+    stop = min(len(dataset), stop)
     iterator = get_dataset_iterator(dataset, start, stop)
     
     cyclic_idx = 0
@@ -94,6 +95,7 @@ def sequential_processing(args):
     stop = int(stop)
     if stop == -1:
         stop = len(dataset)
+    stop = min(len(dataset), stop)
     portion_size = stop - start
     iterator = get_dataset_iterator(dataset, start, stop)
 
@@ -122,6 +124,7 @@ def parallel_processing(args):
     stop = int(stop)
     if stop == -1:
         stop = len(dataset)
+    stop = min(stop, len(dataset))
     portion_size = stop - start
 
     cache_path = os.path.join(args.bytedataset_path, "cached[{}]".format(args.portion))
