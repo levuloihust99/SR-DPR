@@ -39,6 +39,13 @@ class ByteDataset(Dataset):
         return dataset_size
     
     def __getitem__(self, idx):
+        if isinstance(idx, slice):
+            start = idx.start
+            stop = idx.stop or len(self)
+            step = idx.step or 1
+            idxs = range(start, stop, step)
+            return [self[i] for i in idxs]
+
         if idx >= len(self):
             raise StopIteration
 
