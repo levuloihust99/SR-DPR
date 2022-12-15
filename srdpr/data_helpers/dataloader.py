@@ -60,24 +60,38 @@ class PosDataIterator(object):
         self.max_length = max_length
         self.shuffle_positive = shuffle_positive
         self.shuffle = shuffle
+        self.state = {'shift_back': 0}
         self.data_queue = mp.Queue(maxsize=prefetch_factor)
         self.feeding_worker = mp.Process(target=self.feeding, 
-            args=(self.data_queue, self.dataset, self.idxs_generator, self.collate_fn,
+            args=(self.data_queue, self.dataset.data_path, self.idxs_generator, self.collate_fn,
                 self.forward_batch_size, self.contrastive_size), daemon=True)
-        self.feeding_worker.start()
         self.buffer = deque(maxlen=forward_batch_size + contrastive_size)
+
+    def start_worker(self):
+        logging.getLogger("transformers.tokenization_utils_base").disabled = True
+        self.feeding_worker.start()
+
+    def get_idxs_generator_state(self):
+        return {'epoch': self.idxs_generator.epoch, 'iteration': self.idxs_generator.iteration,
+            'shift_back': self.state['shift_back']}
+    
+    def set_idxs_generator_state(self, state):
+        self.idxs_generator.set_epoch(state['epoch'])
+        self.idxs_generator.set_iteration(state['iteration'] - state['shift_back'])
     
     def __iter__(self):
         return self
-    
+
     def __next__(self):
         batch, update = self.data_queue.get()
         self.idxs_generator.set_epoch(update['epoch'])
         self.idxs_generator.set_iteration(update['iteration'])
+        self.state['shift_back'] = update['shift_back']
         return batch
     
     @staticmethod
-    def feeding(data_queue, dataset, idxs_generator, collate_fn, forward_batch_size, contrastive_size):
+    def feeding(data_queue, dataset_path, idxs_generator, collate_fn, forward_batch_size, contrastive_size):
+        dataset = ByteDataset(data_path=dataset_path, idx_record_size=6)
         idxs_iterator = iter(idxs_generator)
         buffer = deque(maxlen=forward_batch_size + contrastive_size)
         while True:
@@ -101,10 +115,12 @@ class PosDataIterator(object):
                 random.seed(idxs_generator.shuffle_seed + idxs_generator.epoch
                     + idxs_generator.iteration)
                 items = collate_fn(items)
-            data_queue.put((items, {'epoch': idxs_generator.epoch, 'iteration': idxs_generator.iteration}))
+            data_queue.put((items, {'epoch': idxs_generator.epoch, 'iteration': idxs_generator.iteration,
+                'shift_back': len(buffer)}))
 
     def collate_fn(self, items):
         """This function use dynamic batching."""
+
         batch_questions_ids = []
         batch_positive_contexts_ids = []
         batch_negative_contexts_ids = []
@@ -233,9 +249,9 @@ class PoshardDataIterator(object):
     def get_idxs_generator_state(self):
         return {'epoch': self.idxs_generator.epoch, 'iteration': self.idxs_generator.iteration}
     
-    def set_idxs_generator_state(self, epoch, iteration):
-        self.idxs_generator.set_epoch(epoch)
-        self.idxs_generator.set_iteration(iteration)
+    def set_idxs_generator_state(self, state):
+        self.idxs_generator.set_epoch(state['epoch'])
+        self.idxs_generator.set_iteration(state['iteration'])
 
     def __iter__(self):
         return self
@@ -433,10 +449,10 @@ class HardDataIterator(object):
         tokenizer,
         forward_batch_size: int,
         contrastive_size: int,
-        shuffle: bool = True,
-        max_length: int = 512,
         randneg_dataset: Optional[ByteDataset] = None,
         randneg_idxs_generator: Optional[StatelessIdxsGenerator] = None,
+        shuffle: bool = True,
+        max_length: int = 512,
         use_randneg_dataset: bool = False,
         prefetch_factor: int = 10,
     ):
@@ -448,29 +464,50 @@ class HardDataIterator(object):
         self.shuffle = shuffle
         self.max_length = max_length
         self.use_randneg_dataset = use_randneg_dataset
-        self.state = {'shift_back': 0}
+        self.randneg_dataset = randneg_dataset
+        self.randneg_idxs_generator = randneg_idxs_generator
+        self.state = {'hardneg': {'shift_back': 0}}
         
         self.data_queue = mp.Queue(maxsize=prefetch_factor)
+        self.sample_from_hardneg = None
+        if use_randneg_dataset:
+            self._determine_sample_size()
         self.feeding_worker = mp.Process(target=self.feeding, 
             args=(self.data_queue, hardneg_dataset.data_path, hardneg_idxs_generator, self.collate_fn, forward_batch_size,
-                contrastive_size, randneg_dataset, randneg_idxs_generator, use_randneg_dataset),
+                contrastive_size, randneg_dataset.data_path, randneg_idxs_generator, self.sample_from_hardneg, use_randneg_dataset),
             daemon=True)
 
-        if use_randneg_dataset:
-            raise Exception("This code currently does not support the use of `use_randneg_dataset`. "
-                "This option is for future release.")
+    def _determine_sample_size(self):
+        hardneg_dataset_size = len(self.hardneg_dataset)
+        randneg_dataset_size = len(self.randneg_dataset)
+        sample_from_hardneg = self.contrastive_size * hardneg_dataset_size / (randneg_dataset_size + hardneg_dataset_size)
+        self.sample_from_hardneg = int(sample_from_hardneg)
     
     def start_worker(self):
         logging.getLogger("transformers.tokenization_utils_base").disabled = True
         self.feeding_worker.start()
     
     def get_idxs_generator_state(self):
-        return {'epoch': self.hardneg_idxs_generator.epoch, 'iteration': self.hardneg_idxs_generator.iteration,
-            'shift_back': self.state['shift_back']}
+        return {
+            'hardneg': {
+                'epoch': self.hardneg_idxs_generator.epoch,
+                'iteration': self.hardneg_idxs_generator.iteration,
+                'shift_back': self.state['hardneg']['shift_back']
+            },
+            'randneg': {
+                'epoch': self.randneg_idxs_generator.epoch,
+                'iteration': self.randneg_idxs_generator.iteration
+            }
+        }
     
-    def set_idxs_generator_state(self, epoch, iteration):
-        self.hardneg_idxs_generator.set_epoch(epoch)
-        self.hardneg_idxs_generator.set_iteration(iteration)
+    def set_idxs_generator_state(self, state):
+        hardneg_state = state['hardneg']
+        self.hardneg_idxs_generator.set_epoch(hardneg_state['epoch'])
+        self.hardneg_idxs_generator.set_iteration(hardneg_state['iteration'] - hardneg_state['shift_back'])
+        if self.use_randneg_dataset:
+            randneg_state = state['randneg']
+            self.randneg_idxs_generator.set_epoch(randneg_state['epoch'])
+            self.randneg_idxs_generator.set_iteration(randneg_state['iteration'])
     
     def __iter__(self):
         return self
@@ -479,7 +516,10 @@ class HardDataIterator(object):
         batch, update = self.data_queue.get()
         self.hardneg_idxs_generator.set_epoch(update['hardneg']['epoch'])
         self.hardneg_idxs_generator.set_iteration(update['hardneg']['iteration'])
-        self.state['shift_back'] = update['hardneg']['shift_back']
+        if self.use_randneg_dataset:
+            self.randneg_idxs_generator.set_epoch(update['randneg']['epoch'])
+            self.randneg_idxs_generator.set_iteration(update['randneg']['iteration'])
+        self.state['hardneg']['shift_back'] = update['hardneg']['shift_back']
         return batch
 
     @staticmethod
@@ -490,8 +530,9 @@ class HardDataIterator(object):
         collate_fn,
         forward_batch_size,
         contrastive_size,
-        randneg_dataset,
+        randneg_dataset_path,
         randneg_idxs_generator,
+        sample_from_hardneg,
         use_randneg_dataset
     ):
         hardneg_dataset = ByteDataset(data_path=hardneg_dataset_path, idx_record_size=6)
@@ -522,8 +563,47 @@ class HardDataIterator(object):
                 data_queue.put((items, {'hardneg': {'epoch': hardneg_idxs_generator.epoch, 'iteration': hardneg_idxs_generator.iteration,
                     'shift_back': len(buffer)}}))
         else:
-            raise Exception("This code currently does not support the use of `use_randneg_dataset`. "
-                "This option is for future release.")
+            hardneg_idxs_iterator = iter(hardneg_idxs_generator)
+            randneg_dataset = ByteDataset(data_path=randneg_dataset_path, idx_record_size=6)
+            randneg_idxs_iterator = iter(randneg_idxs_generator)
+            buffer = deque(maxlen=forward_batch_size + sample_from_hardneg)
+            while True:
+                # fill up buffer
+                while len(buffer) < forward_batch_size + sample_from_hardneg:
+                    buffer.append(next(hardneg_idxs_iterator))
+                
+                # shift buffer
+                forward_idxs = []
+                for _ in range(forward_batch_size):
+                    forward_idxs.append(buffer.popleft())
+                
+                # access buffer
+                hardneg_contrastive_idxs = []
+                for i in range(sample_from_hardneg):
+                    hardneg_contrastive_idxs.append(buffer[i])
+                randneg_contrastive_idxs = []
+                for _ in range(contrastive_size - sample_from_hardneg):
+                    randneg_contrastive_idxs.append(next(randneg_idxs_iterator))
+                
+                items = [hardneg_dataset[idx] for idx in forward_idxs + hardneg_contrastive_idxs] + \
+                            [randneg_dataset[idx] for idx in randneg_contrastive_idxs]
+
+                if collate_fn:
+                    random.seed(hardneg_idxs_generator.shuffle_seed + hardneg_idxs_generator.epoch
+                        + hardneg_idxs_generator.iteration + randneg_idxs_generator.shuffle_seed
+                        + randneg_idxs_generator.epoch + randneg_idxs_generator.iteration)
+                    items = collate_fn(items)
+                data_queue.put((items, {
+                    'hardneg': {
+                        'epoch': hardneg_idxs_generator.epoch,
+                        'iteration': hardneg_idxs_generator.iteration,
+                        'shift_back': len(buffer)
+                    },
+                    'randneg': {
+                        'epoch': randneg_idxs_generator.epoch,
+                        'iteration': randneg_idxs_generator.iteration
+                    }
+                }))
 
     def collate_fn(self, items):
         """This function use dynamic batching."""

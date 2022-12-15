@@ -15,8 +15,19 @@ from dpr.options import set_encoder_params_from_state, setup_args_gpu, set_seed,
 from dpr.utils.data_utils import ShardedDataIterableDataset, read_data_from_json_files
 
 from dpr.utils.model_utils import get_model_file, get_model_obj, get_schedule_linear, load_states_from_checkpoint, setup_for_distributed_mode
-from srdpr.constants import HARD_PIPELINE_NAME, HARD_SEED, INBATCH_PIPELINE_NAME, INBATCH_SEED, POSHARD_PIPELINE_NAME, POSHARD_SEED
-from srdpr.data_helpers.dataloader import HardDataIterator, InbatchDataIterator, PoshardDataIterator, StatelessIdxsGenerator, WrapperGCDPRInbatchIterator
+from srdpr.constants import (
+    HARD_PIPELINE_NAME, HARD_SEED,
+    INBATCH_PIPELINE_NAME, INBATCH_SEED,
+    POSHARD_PIPELINE_NAME, POSHARD_SEED,
+    POS_PIPELINE_NAME, POS_SEED
+)
+from srdpr.data_helpers.dataloader import (
+    PosDataIterator,
+    PoshardDataIterator,
+    HardDataIterator,
+    InbatchDataIterator,
+    StatelessIdxsGenerator
+)
 from srdpr.data_helpers.datasets import ByteDataset
 from srdpr.utils.logging_utils import add_color_formatter
 from srdpr.utils.helpers import dictconfig_to_namespace
@@ -76,32 +87,53 @@ def main(cfg: DictConfig):
                                                     cfg.local_rank,
                                                     cfg.fp16,
                                                     cfg.fp16_opt_level)
-    
-    dataset = ByteDataset(data_path=cfg.bytedataset, idx_record_size=6)
+
     pipelines_to_build = cfg.train_mode.split('+')
     iterators = {}
+    if POS_PIPELINE_NAME in pipelines_to_build:
+        pos_dataset = ByteDataset(data_path=cfg.bytedataset.pos, idx_record_size=6)
+        iterators[POS_PIPELINE_NAME] = PosDataIterator(
+            dataset=pos_dataset,
+            idxs_generator=StatelessIdxsGenerator(len(pos_dataset), shuffle_seed=cfg.seed + POS_SEED),
+            tokenizer=tensorizer.tokenizer,
+            forward_batch_size=getattr(cfg.pipeline, POS_PIPELINE_NAME).forward_batch_size,
+            contrastive_size=getattr(cfg.pipeline, POS_PIPELINE_NAME).contrastive_size,
+            max_length=cfg.max_length
+        )
     if POSHARD_PIPELINE_NAME in pipelines_to_build:
+        poshard_dataset = ByteDataset(data_path=cfg.bytedataset.poshard, idx_record_size=6)
         iterators[POSHARD_PIPELINE_NAME] = PoshardDataIterator(
-            dataset=dataset,
-            idxs_generator=StatelessIdxsGenerator(len(dataset), shuffle_seed=cfg.seed + POSHARD_SEED),
+            dataset=poshard_dataset,
+            idxs_generator=StatelessIdxsGenerator(len(poshard_dataset), shuffle_seed=cfg.seed + POSHARD_SEED),
             tokenizer=tensorizer.tokenizer,
             forward_batch_size=getattr(cfg.pipeline, POSHARD_PIPELINE_NAME).forward_batch_size,
             contrastive_size=getattr(cfg.pipeline, POSHARD_PIPELINE_NAME).contrastive_size,
             max_length=cfg.max_length
         )
     if HARD_PIPELINE_NAME in pipelines_to_build:
+        hardneg_dataset = ByteDataset(data_path=cfg.bytedataset.hard.hardneg, idx_record_size=6)
+        if getattr(cfg.pipeline, HARD_PIPELINE_NAME).use_randneg:
+            randneg_dataset = ByteDataset(data_path=cfg.bytedataset.hard.randneg, idx_record_size=6)
+            randneg_idxs_generator = StatelessIdxsGenerator(len(randneg_dataset), shuffle_seed=cfg.seed + HARD_SEED)
+        else:
+            randneg_dataset = None
+            randneg_idxs_generator = None
         iterators[HARD_PIPELINE_NAME] = HardDataIterator(
-            hardneg_dataset=dataset,
-            hardneg_idxs_generator=StatelessIdxsGenerator(len(dataset), shuffle_seed=cfg.seed + HARD_SEED),
+            hardneg_dataset=hardneg_dataset,
+            hardneg_idxs_generator=StatelessIdxsGenerator(len(hardneg_dataset), shuffle_seed=cfg.seed + HARD_SEED),
+            randneg_dataset=randneg_dataset,
+            randneg_idxs_generator=randneg_idxs_generator,
             tokenizer=tensorizer.tokenizer,
             forward_batch_size=getattr(cfg.pipeline, HARD_PIPELINE_NAME).forward_batch_size,
             contrastive_size=getattr(cfg.pipeline, HARD_PIPELINE_NAME).contrastive_size,
-            max_length=cfg.max_length
+            max_length=cfg.max_length,
+            use_randneg_dataset=getattr(cfg.pipeline, HARD_PIPELINE_NAME).use_randneg
         )
     if INBATCH_PIPELINE_NAME in pipelines_to_build:
+        inbatch_dataset = ByteDataset(data_path=cfg.bytedataset.inbatch, idx_record_size=6)
         iterators[INBATCH_PIPELINE_NAME] = InbatchDataIterator(
-            dataset=dataset,
-            idxs_generator=StatelessIdxsGenerator(len(dataset), shuffle_seed=cfg.seed + INBATCH_SEED),
+            dataset=inbatch_dataset,
+            idxs_generator=StatelessIdxsGenerator(len(inbatch_dataset), shuffle_seed=cfg.seed + INBATCH_SEED),
             tokenizer=tensorizer.tokenizer,
             forward_batch_size=getattr(cfg.pipeline, INBATCH_PIPELINE_NAME).forward_batch_size,
             use_hardneg=getattr(cfg.pipeline, INBATCH_PIPELINE_NAME).use_hardneg,
@@ -141,11 +173,7 @@ def main(cfg: DictConfig):
                 if specific_pipeline_state is None:
                     logger.warning("You are continuing training with a different pipeline setup.")
                 else:
-                    epoch = specific_pipeline_state['epoch']
-                    iteration = specific_pipeline_state['iteration']
-                    if pipeline in {'pos', 'hard'}:
-                        iteration = iteration - specific_pipeline_state['shift_back']
-                    iterators[pipeline].set_idxs_generator_state(epoch, iteration)
+                    iterators[pipeline].set_idxs_generator_state(specific_pipeline_state)
         
         # restore RNG
         cpu_state = getattr(saved_state, 'cpu_state', None)
