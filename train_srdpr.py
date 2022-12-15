@@ -23,6 +23,31 @@ from srdpr.utils.helpers import dictconfig_to_namespace
 from srdpr.nn.trainer import SRBiEncoderTrainer
 
 
+def encode_decorator(encode):
+    """This decorator is to add behaviour when title of a context is None."""
+
+    def wrapper(
+        text,
+        text_pair = None,
+        add_special_tokens = True,
+        padding = False,
+        truncation = False,
+        max_length = None,
+        stride: int = 0,
+        return_tensors = None,
+        **kwargs
+    ):
+        if text is None:
+            text = text_pair
+            text_pair = None
+        return encode(
+            text, text_pair, add_special_tokens,
+            padding, truncation, max_length,
+            stride, return_tensors, **kwargs
+        )
+    return wrapper
+
+
 @hydra.main(version_base=None, config_path="conf", config_name="config")
 def main(cfg: DictConfig):
     logging.basicConfig(level=logging.INFO)
@@ -45,6 +70,7 @@ def main(cfg: DictConfig):
         set_encoder_params_from_state(saved_state.encoder_params, cfg)
 
     tensorizer, biencoder, optimizer = init_biencoder_components(cfg.encoder_model_type, cfg)
+    tensorizer.tokenizer.encode = encode_decorator(tensorizer.tokenizer.encode)
 
     biencoder, optimizer = setup_for_distributed_mode(biencoder, optimizer, cfg.device, cfg.n_gpu,
                                                     cfg.local_rank,
