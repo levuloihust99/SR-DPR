@@ -35,6 +35,7 @@ class SRBiEncoderTrainer(object):
         iterators,
         summary_writer,
         trained_steps: int,
+        history,
     ):
         self.cfg = cfg
         self.biencoder = biencoder
@@ -44,8 +45,11 @@ class SRBiEncoderTrainer(object):
         for pipeline, iterator in iterators.items():
             iterator.start_worker()
         self.summary_writer = summary_writer
-        self.history = {f"{pipeline}/loss": None for pipeline in iterators}
-        self.history.update({f"{pipeline}/step": 0 for pipeline in iterators})
+        if history:
+            self.history = history
+        else:
+            self.history = {f"{pipeline}/loss": None for pipeline in iterators}
+            self.history.update({f"{pipeline}/step": 0 for pipeline in iterators})
         self.trained_steps = trained_steps
         self.loss_calculator = LossCalculator()
         self.scaler = GradScaler() if cfg.fp16 else None
@@ -110,6 +114,7 @@ class SRBiEncoderTrainer(object):
             'pipeline_dict': pipeline_dict,
             'encoder_params': meta_params,
             'step': step + 1,
+            'history': self.history,
             **rng_states
         }
         with tf.io.gfile.GFile(cp, "wb") as writer:

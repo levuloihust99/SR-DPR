@@ -143,6 +143,7 @@ def main(cfg: DictConfig):
 
     scheduler = get_schedule_linear(optimizer, cfg.warmup_steps, cfg.total_updates)
     trained_steps = 0
+    history = None
     if saved_state is not None:
         # Load saved state
         model_to_load = get_model_obj(biencoder)
@@ -192,6 +193,9 @@ def main(cfg: DictConfig):
         
         if saved_state.step:
             trained_steps = saved_state.step
+        
+        if saved_state.history:
+            history = saved_state.history
 
     summary_writer = SummaryWriter(cfg.log_dir)
     trainer = SRBiEncoderTrainer(
@@ -201,7 +205,8 @@ def main(cfg: DictConfig):
         scheduler=scheduler,
         iterators=iterators,
         summary_writer=summary_writer,
-        trained_steps=trained_steps
+        trained_steps=trained_steps,
+        history=history,
     )
 
     trainer.run_train()
