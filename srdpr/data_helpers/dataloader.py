@@ -474,7 +474,7 @@ class HardDataIterator(object):
             self._determine_sample_size()
         self.feeding_worker = mp.Process(target=self.feeding, 
             args=(self.data_queue, hardneg_dataset.data_path, hardneg_idxs_generator, self.collate_fn, forward_batch_size,
-                contrastive_size, randneg_dataset.data_path, randneg_idxs_generator, self.sample_from_hardneg, use_randneg_dataset),
+                contrastive_size, randneg_dataset.data_path if randneg_dataset else None, randneg_idxs_generator, self.sample_from_hardneg, use_randneg_dataset),
             daemon=True)
 
     def _determine_sample_size(self):
