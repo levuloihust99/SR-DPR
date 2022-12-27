@@ -488,17 +488,21 @@ class HardDataIterator(object):
         self.feeding_worker.start()
     
     def get_idxs_generator_state(self):
-        return {
+        state = {
             'hardneg': {
                 'epoch': self.hardneg_idxs_generator.epoch,
                 'iteration': self.hardneg_idxs_generator.iteration,
                 'shift_back': self.state['hardneg']['shift_back']
-            },
-            'randneg': {
-                'epoch': self.randneg_idxs_generator.epoch,
-                'iteration': self.randneg_idxs_generator.iteration
             }
         }
+        if self.use_randneg_dataset:
+            state['randneg'] = {
+                'randneg': {
+                    'epoch': self.randneg_idxs_generator.epoch,
+                    'iteration': self.randneg_idxs_generator.iteration
+                }
+            }
+        return state
     
     def set_idxs_generator_state(self, state):
         hardneg_state = state['hardneg']
