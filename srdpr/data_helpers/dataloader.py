@@ -497,10 +497,8 @@ class HardDataIterator(object):
         }
         if self.use_randneg_dataset:
             state['randneg'] = {
-                'randneg': {
-                    'epoch': self.randneg_idxs_generator.epoch,
-                    'iteration': self.randneg_idxs_generator.iteration
-                }
+                'epoch': self.randneg_idxs_generator.epoch,
+                'iteration': self.randneg_idxs_generator.iteration
             }
         return state
     
