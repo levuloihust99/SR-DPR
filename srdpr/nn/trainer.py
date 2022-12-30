@@ -86,6 +86,13 @@ class SRBiEncoderTrainer(object):
         self._index_boundaries = [sum(num_continuous_steps[:idx])
                                   for idx in range(len(num_continuous_steps) + 1)]
         self._cycle_walk = sum(num_continuous_steps)
+        
+        log_msgs = []
+        for i in range(len(self._available_pipelines)):
+            log_msgs.append("{} = {}".format(self._available_pipelines[i], num_continuous_steps[i]))
+        log_msg = " :: ".join(log_msgs)
+        log_msg = "Pipeline steps: {}".format(log_msg)
+        logger.info(log_msg)
     
     def _save_checkpoint(self, step, rng_states):
         cfg = self.cfg
