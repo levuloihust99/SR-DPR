@@ -96,7 +96,7 @@ See the below table for detailed parameter descriptions.
     <th>Description</th>
   </tr>
   <tr>
-    <td colspan="5" style="text-align:center; font-weight:450;">Encoder parameters</td>
+    <th colspan="5">Encoder parameters</th>
   </tr>
   <tr>
     <td colspan="4"><code>pretrained_model_cfg</code></td>
@@ -123,7 +123,7 @@ See the below table for detailed parameter descriptions.
     <td>-</td>
   </tr>
   <tr>
-    <td colspan="5" style="text-align:center; font-weight:450">Training parameters</td>
+    <th colspan="5">Training parameters</td>
   </tr>
   <tr>
     <td colspan="4"><code>train_file</code></td>
@@ -202,7 +202,7 @@ See the below table for detailed parameter descriptions.
     <td>A batch of contexts is splitted into multiple sub-batches, each has <code>ctx_chunk_size</code> contexts, used only when <code>grad_cache</code> is <code>True</code> (<strong>Default</strong> to <code>2</code>)</td>
   </tr>
   <tr>
-    <td colspan="5" style="text-align:center; font-weight:450">CUDA parameters</td>
+    <th colspan="5">CUDA parameters</th>
   </tr>
   <tr>
     <td colspan="4"><code>no_cuda</code></td>
@@ -221,14 +221,14 @@ See the below table for detailed parameter descriptions.
     <td><code>fp16</code> optimization level. See <a href="https://nvidia.github.io/apex/amp.html" target="_blank">https://nvidia.github.io/apex/amp.html</a> for details. (<strong>Default</strong> to <code>O1</code>), allowed values are <code>O0</code>, <code>O1</code>, <code>O2</code>, <code>O3</code>)</td>
   </tr>
   <tr>
-    <td colspan="5" style="text-align:center; font-weight:450">Tokenizer parameters</td>
+    <th colspan="5">Tokenizer parameters</th>
   </tr>
   <tr>
     <td colspan="4"><code>do_lower_case</code></td>
     <td>This parameter is passed to, for example, the method <code>BertTokenizer.from_pretrained</code> in <code>transformers</code> library. The behavior of this parameter depends on the tokenizer class that you use, e.g. <code>BertTokenizer</code>, <code>PhobertTokenizer</code>, .etc.<br><strong>Note:</strong> for <code>transformers==3.0.2</code>, using <code>BertTokenizer.from_pretrained("NlpHUST/vibert4news-base-cased", do_lower_case=True)</code> strips all accents, leads to wrong tokenization results.<br>(<strong>Default</strong> to <code>False</code>)</td>
   </tr>
   <tr>
-    <td colspan="5" style="text-align:center; font-weight:450">Main parameters</td>
+    <th colspan="5">Main parameters</th>
   </tr>
   <tr>
     <td colspan="4"><code>eval_per_epoch</code></td>
@@ -307,7 +307,7 @@ See the below table for detailed parameter descriptions.
     <td>Save checkpoint every <code>save_checkpoint_freq</code> optimization steps (<strong>Default</strong> to <code>1000</code>)</td>
   </tr>
   <tr>
-    <td colspan="5" style="text-align:center; font-weight:450">Pipeline parameters</td>
+    <th colspan="5">Pipeline parameters</th>
   </tr>
   <tr>
     <td colspan="4"><code>regulate_factor</code></td>
