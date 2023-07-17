@@ -1,0 +1,77 @@
+defaults:
+  - pipeline: defaults
+
+# encoder params
+pretrained_model_cfg:
+encoder_model_type:
+pretrained_file:
+model_file:
+projection_dim: 0
+sequence_length: 256
+
+# training params
+train_file:
+dev_file:
+batch_size:
+dev_batch_size:
+seed: 12345
+adam_eps: 1e-8
+adam_betas: (0.9, 0.999)
+max_grad_norm: 1.0
+log_batch_step: 100
+train_rolling_loss_step: 100
+weight_decay: 0.0
+learning_rate: 1e-5
+warmup_steps: 1000
+dropout: 0.1
+gradient_accumulation_steps: 1
+num_train_epochs: 3.0
+grad_cache:
+q_chunk_size: 2
+ctx_chunk_size: 2
+
+# cuda params
+no_cuda:
+local_rank: -1
+fp16:
+fp16_opt_level: O1
+
+# tokenizer params
+do_lower_case: true
+
+# main params
+eval_per_epoch: 1
+global_loss_buf_sz: 150000
+fix_ctx_encoder:
+shuffle_positive_ctx:
+output_dir:
+log_dir: logs
+hard_negatives: 1
+other_negatives: 0
+train_files_upsample_rates:
+val_av_rank_start_epoch: 10000
+val_av_rank_hard_neg: 30
+val_av_rank_other_neg: 30
+val_av_rank_bsz: 128
+val_av_rank_max_qs: 10000
+checkpoint_file_name: dpr_biencoder
+loss_scale: 8.0
+sim_func: dot_product
+keep_checkpoint_max: 5
+
+# pipeline
+regulate_factor: 1
+train_mode: poshard+hard
+bytedataset:
+  pos:
+  poshard:
+  hard:
+    hardneg:
+    randneg:
+  inbatch:
+cached: false
+max_length: 256
+
+# additional
+total_updates: 10000
+save_checkpoint_freq: 1000

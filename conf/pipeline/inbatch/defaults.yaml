@@ -1,0 +1,5 @@
+forward_batch_size: 16
+use_hardneg: true
+use_num_hardnegs: 1
+gradient_accumulate_steps: 1
+logging_step: 10

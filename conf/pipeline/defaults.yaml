@@ -1,0 +1,5 @@
+defaults:
+  - inbatch: defaults
+  - pos: defaults
+  - poshard: defaults
+  - hard: defaults

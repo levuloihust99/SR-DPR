@@ -1,0 +1,4 @@
+forward_batch_size: 16
+contrastive_size: 16
+gradient_accumulate_steps: 1
+logging_step: 10
