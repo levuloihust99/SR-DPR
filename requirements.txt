@@ -1,0 +1,7 @@
+torch==1.12.1
+transformers==4.12.5
+sanic==21.12.1
+sanic_cors==2.0.1
+faiss-cpu==1.7.2
+jsonlines
+websockets < 11
