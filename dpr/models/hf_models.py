@@ -15,11 +15,11 @@ from typing import Tuple
 import torch
 from torch import Tensor as T
 from torch import nn
-from transformers.modeling_bert import BertConfig, BertModel
+# from transformers.modeling_bert import BertConfig, BertModel
 from transformers.optimization import AdamW
-from transformers.tokenization_bert import BertTokenizer
-from transformers.tokenization_roberta import RobertaTokenizer
-
+# from transformers.tokenization_bert import BertTokenizer
+# from transformers.tokenization_roberta import RobertaTokenizer
+from transformers import BertConfig, BertModel, BertTokenizer, RobertaTokenizer
 from dpr.utils.data_utils import Tensorizer
 from .biencoder import BiEncoder
 from .reader import Reader
@@ -115,14 +115,16 @@ class HFBertEncoder(BertModel):
 
     def forward(self, input_ids: T, token_type_ids: T, attention_mask: T) -> Tuple[T, ...]:
         if self.config.output_hidden_states:
-            sequence_output, pooled_output, hidden_states = super().forward(input_ids=input_ids,
-                                                                            token_type_ids=token_type_ids,
-                                                                            attention_mask=attention_mask)
+            outputs = super().forward(input_ids=input_ids,
+                                      token_type_ids=token_type_ids,
+                                      attention_mask=attention_mask, return_dict=True)
+            sequence_output = outputs.last_hidden_state
+            hidden_states = outputs.hidden_states
         else:
             hidden_states = None
-            sequence_output, pooled_output = super().forward(input_ids=input_ids, token_type_ids=token_type_ids,
-                                                             attention_mask=attention_mask)
-
+            outputs = super().forward(input_ids=input_ids, token_type_ids=token_type_ids,
+                                                             attention_mask=attention_mask, return_dict=True)
+            sequence_output = outputs.last_hidden_state
         pooled_output = sequence_output[:, 0, :]
         if self.encode_proj:
             pooled_output = self.encode_proj(pooled_output)
