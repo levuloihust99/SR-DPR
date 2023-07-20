@@ -1,0 +1,18 @@
+apps:
+  - name: AgirS Chatbot
+    interpreter: "/home/chatbot/dhnam/SR-DPR/venv/bin/python3"
+    script: app.py
+    args: "--index-path indexes/agris --port 5666"
+    combine_logs: true
+
+  - name: HSC Chatbot
+    interpreter: "/home/chatbot/dhnam/SR-DPR/venv/bin/python3"
+    script: app_duplicate.py
+    args: "--index-path indexes/hsc --port 5667"
+    combine_logs: true
+
+  - name: NSBlueScope Chatbot
+    interpreter: "/home/chatbot/dhnam/SR-DPR/venv/bin/python3"
+    script: app.py
+    args: "--index-path indexes/NSBlueScope --port 5668"
+    combine_logs: true
