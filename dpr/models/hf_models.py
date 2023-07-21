@@ -100,8 +100,8 @@ def get_roberta_tokenizer(pretrained_cfg_name: str, do_lower_case: bool = True):
 
 class HFBertEncoder(BertModel):
 
-    def __init__(self, config, project_dim: int = 0):
-        BertModel.__init__(self, config)
+    def __init__(self, config, project_dim: int = 0, **kwargs):
+        BertModel.__init__(self, config, **kwargs)
         assert config.hidden_size > 0, 'Encoder hidden_size can\'t be zero'
         self.encode_proj = nn.Linear(config.hidden_size, project_dim) if project_dim != 0 else None
         self.init_weights()
@@ -114,16 +114,32 @@ class HFBertEncoder(BertModel):
         return cls.from_pretrained(cfg_name, config=cfg, project_dim=projection_dim, **kwargs)
 
     def forward(self, input_ids: T, token_type_ids: T, attention_mask: T) -> Tuple[T, ...]:
+        input_shape = input_ids.size()
+        seq_length = input_shape[1]
+        position_ids = torch.arange(seq_length, dtype=torch.long, device=input_ids.device)
+        position_ids = position_ids.unsqueeze(0).expand(input_ids.size())
+        if token_type_ids is None:
+            token_type_ids = torch.zeros(input_shape, dtype=torch.long, device=input_ids.device)
+
         if self.config.output_hidden_states:
-            outputs = super().forward(input_ids=input_ids,
-                                      token_type_ids=token_type_ids,
-                                      attention_mask=attention_mask, return_dict=True)
+            outputs = super().forward(
+                input_ids=input_ids,
+                token_type_ids=token_type_ids,
+                attention_mask=attention_mask,
+                position_ids=position_ids,
+                return_dict=True
+        )
             sequence_output = outputs.last_hidden_state
             hidden_states = outputs.hidden_states
         else:
             hidden_states = None
-            outputs = super().forward(input_ids=input_ids, token_type_ids=token_type_ids,
-                                                             attention_mask=attention_mask, return_dict=True)
+            outputs = super().forward(
+                input_ids=input_ids,
+                token_type_ids=token_type_ids,
+                attention_mask=attention_mask,
+                position_ids=position_ids,
+                return_dict=True
+            )
             sequence_output = outputs.last_hidden_state
         pooled_output = sequence_output[:, 0, :]
         if self.encode_proj:

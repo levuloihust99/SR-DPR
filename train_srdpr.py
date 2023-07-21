@@ -80,7 +80,7 @@ def main(cfg: DictConfig):
         saved_state = load_states_from_checkpoint(model_file)
         set_encoder_params_from_state(saved_state.encoder_params, cfg)
 
-    tensorizer, biencoder, optimizer = init_biencoder_components(cfg.encoder_model_type, cfg)
+    tensorizer, biencoder, optimizer = init_biencoder_components(cfg.encoder_model_type, cfg, add_pooling_layer=False)
     tensorizer.tokenizer.encode = encode_decorator(tensorizer.tokenizer.encode)
 
     biencoder, optimizer = setup_for_distributed_mode(biencoder, optimizer, cfg.device, cfg.n_gpu,
