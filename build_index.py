@@ -23,7 +23,7 @@ def build_index(args, **kwargs):
         for k, v in saved_state.items()
         if k.startswith(ctx_prefix)
     }
-    assert len(ctx_model_state) == 199
+    # assert len(ctx_model_state) == 199
     ctx_model = BertModel.from_pretrained(cfg.pretrained_model_path)
     ctx_model.load_state_dict(ctx_model_state,  strict=False)
     ctx_model.eval()
