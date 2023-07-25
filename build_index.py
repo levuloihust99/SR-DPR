@@ -1,13 +1,33 @@
-import argparse
+import os
 import json
-from typing import Text
-from dpr.indexer.faiss_indexers import DenseFlatIndexer
-from utils import load_corpus_dataset, logger
-import torch 
-from transformers import BertTokenizer,BertModel
-from tqdm import tqdm
+import torch
+import argparse
 
-def build_index(args, **kwargs):
+from tqdm import tqdm
+from typing import Text, Dict
+from transformers import BertModel, BertTokenizer
+from libs.faiss_indexer import DenseFlatIndexer
+
+
+def load_corpus_dataset(corpus_path: Text):
+    if os.path.splitext(corpus_path)[1]== "json":
+        with open(corpus_path, "r") as reader:
+            corpus = json.load(reader)
+    else:
+        corpus = []
+        with open(corpus_path, "r") as reader:
+            for line in reader:
+                corpus.append(json.loads(line.strip()))
+    return corpus
+
+
+def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--config-file", required=True)
+    parser.add_argument("--pth-checkpoint", required=False, default='checkpoint/dpr_biencoder.1000', 
+                        help = 'Path to pytorch checkpoint')
+    parser.add_argument("--use-cuda", default=False, action="store_true")
+    args = parser.parse_args()
     # Load Config
     with open(args.config_file) as reader:
         cfg = json.load(reader)
@@ -27,9 +47,12 @@ def build_index(args, **kwargs):
     ctx_model = BertModel.from_pretrained(cfg.pretrained_model_path)
     ctx_model.load_state_dict(ctx_model_state,  strict=False)
     ctx_model.eval()
-    if args.use_cuda:
-        ctx_model.to("cuda")
-    
+    if args.use_cuda and torch.cuda.is_available():
+        device = 'cuda'
+        ctx_model.to('cuda')
+    else:
+        device ='cpu'
+        
     tokenizer = BertTokenizer.from_pretrained(cfg.pretrained_model_path)
 
     corpus_meta = load_corpus_dataset(cfg.corpus_meta_path)
@@ -42,7 +65,7 @@ def build_index(args, **kwargs):
                 inputs = tokenizer(context["title"], text_pair=context["text"], return_tensors="pt", truncation=True, max_length=512)
             else:
                 inputs = tokenizer(context["text"], return_tensors="pt", truncation=True, max_length=512) 
-            outputs = ctx_model(input_ids=inputs.input_ids, attention_mask=inputs.attention_mask, return_dict=True)
+            outputs = ctx_model(input_ids=inputs.input_ids.to(device), attention_mask=inputs.attention_mask.to(device), return_dict=True)
             sequence_output = outputs.last_hidden_state # [bsz, seq_len, hidden_size] -> [1, 20, 768]
             pooled_output = sequence_output[:, 0, :]
             all_emb.append(pooled_output)
@@ -54,14 +77,6 @@ def build_index(args, **kwargs):
     indexer.index_data(data_to_be_indexed)
     indexer.serialize(cfg.index_path)
 
-def main():
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--config-file", required=True)
-    parser.add_argument("--pth-checkpoint", required=False, default='checkpoint/dpr_biencoder.1000', 
-                        help = 'Path to pytorch checkpoint')
-    parser.add_argument("--use-cuda", default=False, action="store_true")
-    args = parser.parse_args()
-    build_index(args)
 
 if __name__ == "__main__":
     main()

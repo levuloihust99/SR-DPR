@@ -1,4 +1,3 @@
-from libs.constants import MODEL_MAPPING
 import logging
 import time
 # import tensorflow as tf
