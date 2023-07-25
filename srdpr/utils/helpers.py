@@ -4,7 +4,7 @@ from omegaconf import DictConfig
 from typing import Union, Any
 
 
-def recursive_apply(data, fn):
+def recursive_apply(data, fn, ignore_keys=None):
     stack = [(None, -1, data)]  # parent, idx, child: parent[idx] = child
     while stack:
         parent_node, index, node = stack.pop()
@@ -14,7 +14,7 @@ def recursive_apply(data, fn):
             stack.extend(
                 list(zip([node] * len(node), node.keys(), node.values())))
         elif isinstance(node, str):
-            if node:
+            if node and (ignore_keys is None or index not in ignore_keys):
                 parent_node[index] = fn(node)
             else:
                 parent_node[index] = node
