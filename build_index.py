@@ -27,6 +27,8 @@ def build_index(args, **kwargs):
     ctx_model = BertModel.from_pretrained(cfg.pretrained_model_path)
     ctx_model.load_state_dict(ctx_model_state,  strict=False)
     ctx_model.eval()
+    if args.use_cuda:
+        ctx_model.to("cuda")
     
     tokenizer = BertTokenizer.from_pretrained(cfg.pretrained_model_path)
 
@@ -57,6 +59,7 @@ def main():
     parser.add_argument("--config-file", required=True)
     parser.add_argument("--pth-checkpoint", required=False, default='checkpoint/dpr_biencoder.1000', 
                         help = 'Path to pytorch checkpoint')
+    parser.add_argument("--use-cuda", default=False, action="store_true")
     args = parser.parse_args()
     build_index(args)
 
