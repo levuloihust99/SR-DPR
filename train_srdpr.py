@@ -150,7 +150,11 @@ def main(cfg: DictConfig):
         # Load saved state
         model_to_load = get_model_obj(biencoder)
         logger.info('Loading saved model state ...')
-        model_to_load.load_state_dict(saved_state.model_dict)  # set strict=False if you use extra projection
+        load_state = model_to_load.load_state_dict(saved_state.model_dict, strict=False)  # set strict=False if you use extra projection
+        if load_state.missing_keys:
+            logger.warning("Missing keys when restoring checkpoint: {}".format(load_state.missing_keys))
+        if load_state.unexpected_keys:
+            logger.warning("Unexpected keys when restoring checkpoint: {}".format(load_state.unexpected_keys))
 
         optimizer_state = getattr(saved_state, 'optimizer_dict', None)
         if optimizer_state:
