@@ -150,12 +150,13 @@ def main(cfg: DictConfig):
         logger.info('Loading saved model state ...')
         model_to_load.load_state_dict(saved_state.model_dict)  # set strict=False if you use extra projection
 
-        if saved_state.optimizer_dict:
+        optimizer_state = getattr(saved_state, 'optimizer_dict', None)
+        if optimizer_state:
             logger.info('Loading saved optimizer state ...')
-            optimizer.load_state_dict(saved_state.optimizer_dict)
-        
-        if saved_state.scheduler_dict:
-            scheduler_state = saved_state.scheduler_dict
+            optimizer.load_state_dict(optimizer_state)
+
+        scheduler_state = getattr(saved_state, 'scheduler_dict', None)
+        if scheduler_state:
             logger.info("Loading scheduler state %s", scheduler_state)
             scheduler.load_state_dict(scheduler_state)
             # shift = int(scheduler_state["last_epoch"])
@@ -166,9 +167,9 @@ def main(cfg: DictConfig):
             #     cfg.total_updates,
             #     steps_shift=shift
             # )
-        
-        if saved_state.pipeline_dict: 
-            pipeline_state = saved_state.pipeline_dict
+
+        pipeline_state = getattr(saved_state, 'pipeline_dict', None)
+        if pipeline_state:
             for pipeline in pipelines_to_build:
                 specific_pipeline_state = pipeline_state.get(pipeline)
                 if specific_pipeline_state is None:
@@ -190,12 +191,14 @@ def main(cfg: DictConfig):
                         torch.cuda.set_rng_state(cuda_states[device_id])
                     except Exception:
                         logger.info("Invalid RNG state restored from checkpoint file '{}'".format(model_file))
-        
-        if saved_state.step:
-            trained_steps = saved_state.step
-        
-        if saved_state.history:
-            history = saved_state.history
+
+        saved_state_step = getattr(saved_state, 'step', None)
+        if saved_state_step:
+            trained_steps = saved_state_step
+
+        saved_state_history = getattr(saved_state, 'history', None)
+        if saved_state_history:
+            history = saved_state_history
 
     summary_writer = SummaryWriter(cfg.log_dir)
     trainer = SRBiEncoderTrainer(

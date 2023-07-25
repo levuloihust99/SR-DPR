@@ -132,7 +132,7 @@ def get_model_file(args, file_prefix) -> str:
     return model_file
 
 
-def load_states_from_checkpoint(model_file: str) -> CheckpointState:
+def load_states_from_checkpoint(model_file: str):
     logger.info('Reading saved model from %s', model_file)
     with tf.io.gfile.GFile(model_file, "rb") as reader:
         state_dict = torch.load(reader, map_location=lambda s, l: default_restore_location(s, 'cpu'))
