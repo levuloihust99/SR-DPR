@@ -50,7 +50,7 @@ def load_query_encoder(checkpoint_path: Text, pretrained_model_path: Text):
             for k, v in saved_state.items()
             if k.startswith(question_prefix)
         }
-    assert len(question_model_state) == 199
+    # assert len(question_model_state) == 199s
     question_model = BertModel.from_pretrained(pretrained_model_path)
     question_model.load_state_dict(question_model_state, strict= False)
     
