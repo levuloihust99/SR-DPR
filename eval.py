@@ -103,7 +103,7 @@ def main():
     parser.add_argument("--top_docs", required=False, default=10, help="Query top@top_docs")
     args = parser.parse_args()
     
-    evaluate(args.pth_checkpoint, args.corpus_index_path, args.pretrained_model_path, args.top_docs)
+    evaluate(args.pth_checkpoint, args.corpus_index_path, args.pretrained_model_path, int(args.top_docs))
     
 if __name__=='__main__':
     main()
