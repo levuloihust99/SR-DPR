@@ -7,7 +7,7 @@ from utils import load_corpus_dataset, logger
 from transformers import BertTokenizer, BertModel
 from libs.faiss_indexer import DenseFlatIndexer
 
-def evaluate(model_path: str, corpus_index_path, pretrained_model_path):
+def evaluate(model_path: str, corpus_index_path, pretrained_model_path, top_docs=10):
     """Evaluate DPR Model:
     - Load Context Model, Question Model 
     - Build Index 
@@ -71,7 +71,6 @@ def evaluate(model_path: str, corpus_index_path, pretrained_model_path):
     index_path = os.path.dirname(corpus_index_path)
     indexer.serialize(index_path)
     TP=FP=0
-    top_docs = 10
     for data in corpus_indexed[:50]:
         query = data["questions"][0]
         query_tokens = tokenizer.tokenize(query)
@@ -101,9 +100,10 @@ def main():
     parser.add_argument("--pretrained-model-path", required=False, default="NlpHUST/vibert4news-base-cased",
                         help = 'Path to pytorch checkpoint')
     parser.add_argument("--corpus-index-path", required=True, help="path to copus data, jsonl")
+    parser.add_argument("--top_docs", required=False, default=10, help="Query top@top_docs")
     args = parser.parse_args()
     
-    evaluate(args.pth_checkpoint, args.corpus_index_path, args.pretrained_model_path)
+    evaluate(args.pth_checkpoint, args.corpus_index_path, args.pretrained_model_path, args.top_docs)
     
 if __name__=='__main__':
     main()
