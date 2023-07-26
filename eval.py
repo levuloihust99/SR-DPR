@@ -52,7 +52,7 @@ def evaluate(model_path: str, corpus_index_path, pretrained_model_path, top_docs
     
     data_to_be_indexed = []
     with torch.no_grad():
-        for context in tqdm( corpus_indexed[:50]):
+        for context in tqdm( corpus_indexed):
             all_emb = []
             if context["title"]:
                 inputs = tokenizer(context["title"], text_pair=context["text"], return_tensors="pt", truncation=True, max_length=512)
@@ -71,7 +71,7 @@ def evaluate(model_path: str, corpus_index_path, pretrained_model_path, top_docs
     index_path = os.path.dirname(corpus_index_path)
     indexer.serialize(index_path)
     TP=FP=0
-    for data in corpus_indexed[:50]:
+    for data in corpus_indexed:
         query = data["questions"][0]
         query_tokens = tokenizer.tokenize(query)
         logger.debug("\x1b[38;5;11;1mTokenized query: {}\x1b[0m".format(query_tokens))
