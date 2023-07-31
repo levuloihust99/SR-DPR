@@ -70,7 +70,7 @@ def main():
             pooled_output = sequence_output[:, 0, :]
             all_emb.append(pooled_output)
             all_emb = torch.cat(all_emb, dim=0)
-            data_to_be_indexed.append((ctx_meta,  all_emb[0]))
+            data_to_be_indexed.append((ctx_meta,  all_emb[0].cpu().numpy()))
 
     indexer = DenseFlatIndexer()
     indexer.init_index(vector_sz=768) #(vector_sz=embeddings[0].shape[0]
