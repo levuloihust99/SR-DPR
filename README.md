@@ -413,3 +413,50 @@ See the below table for detailed parameter descriptions.
     <td>Whether or not to use additional samples without hard negatives in <code>hard</code> pipeline (<strong>Default</strong> to <code>True</code>)</td>
   </tr>
 </table>
+
+## References
+If you find `SR-DPR` useful, please cite [our paper](https://doi.org/10.1145/3628797.3628810) as follows:
+```
+@inproceedings{10.1145/3628797.3628810,
+    author = {Le Vu, Loi and Nguyen Tien, Dong and Dang Minh, Tuan},
+    title = {Stratified Ranking for Dense Passage Retrieval},
+    year = {2023},
+    isbn = {9798400708916},
+    publisher = {Association for Computing Machinery},
+    address = {New York, NY, USA},
+    url = {https://doi.org/10.1145/3628797.3628810},
+    doi = {10.1145/3628797.3628810},
+    abstract = {Dense passage retrieval has recently boosted the performance of involved systems such as question answering or search engine. On this problem, prior works trained a dense retriever by learning to rank, i.e. ranking relevant/positive passages higher than irrelevant/negative ones. In this paper, we propose a Stratified Ranking approach for Dense Passage Retrieval (SR-DPR), which performs three-way ranking instead of the typical two-way positive-negative ranking. SR-DPR is concerned with three relevance levels, which are positive, hard negative and random/easy negative. We train SR-DPR model by minimizing a contrastive negative log-likelihood (NLL) loss involved with these three relevance levels, which is a finer-grained version of the N-pair loss [16]. To efficiently implement SR-DPR, we designed three data pipelines, each pipeline is used to learn the contrast between two out of three relevance levels. SR-DPR outperforms the strong baseline DPR [5] by 0.6-1.5\% retrieval accuracy on Natural questions [6] dataset and 3-6\% of that on Zalo Legal Text Retrieval dataset. SR-DPR also gives competitive results compared with current state-of-the-art methods without requiring complicated training regime or intensive hardware resources. The idea of stratified ranking of SR-DPR is not restricted to the scope of dense passage retrieval but can be applied in any contrastive learning problem. We conducted detailed ablation studies to give insights into SR-DPR’s behavior.},
+    booktitle = {Proceedings of the 12th International Symposium on Information and Communication Technology},
+    pages = {24–31},
+    numpages = {8},
+    keywords = {Contrastive learning, Data pipeline, Dense passage retrieval, Stratified ranking},
+    location = {Ho Chi Minh, Vietnam},
+    series = {SOICT '23}
+}
+```
+Also consider citing the original studies this work builds on:
+* [Dense Passage Retrieval for Open-Domain Question Answering](https://arxiv.org/abs/2004.04906)
+    ```
+    @inproceedings{karpukhin-etal-2020-dense,
+        title = "Dense Passage Retrieval for Open-Domain Question Answering",
+        author = "Karpukhin, Vladimir and Oguz, Barlas and Min, Sewon and Lewis, Patrick and Wu, Ledell and Edunov, Sergey and Chen, Danqi and Yih, Wen-tau",
+        booktitle = "Proceedings of the 2020 Conference on Empirical Methods in Natural Language Processing (EMNLP)",
+        month = nov,
+        year = "2020",
+        address = "Online",
+        publisher = "Association for Computational Linguistics",
+        url = "https://www.aclweb.org/anthology/2020.emnlp-main.550",
+        doi = "10.18653/v1/2020.emnlp-main.550",
+        pages = "6769--6781",
+    }
+    ```
+* [Scaling Deep Contrastive Learning Batch Size under Memory Limited Setup](https://arxiv.org/abs/2101.06983)
+    ```
+    @inproceedings{gao2021scaling,
+         title={Scaling Deep Contrastive Learning Batch Size under Memory Limited Setup},
+         author={Luyu Gao, Yunyi Zhang, Jiawei Han, Jamie Callan},
+         booktitle ={Proceedings of the 6th Workshop on Representation Learning for NLP},
+         year={2021},
+    }
+    ```
